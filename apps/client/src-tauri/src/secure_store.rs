@@ -15,7 +15,7 @@ pub struct StoredCredentials {
 const VAULT_FILENAME: &str = "kangxi_credentials.vault.json";
 
 #[cfg(target_os = "windows")]
-const KEYRING_SERVICE: &str = "io.kangxi.app";
+const KEYRING_SERVICE: &str = "io.kangxi.workbench";
 #[cfg(target_os = "windows")]
 const KEYRING_USER: &str = "default_profile";
 
