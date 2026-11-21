@@ -1,0 +1,30 @@
+[package]
+name = "kangxi-client"
+version = "0.1.0"
+description = "KangXi.exe shared Windows & Android Tauri 2 client"
+authors = ["KangXi.exe Contributors"]
+edition = "2021"
+
+[lib]
+name = "kangxi_client_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+kangxi-bridge = { path = "../../../crates/bridge" }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }

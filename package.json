@@ -1,0 +1,19 @@
+{
+  "name": "kangxi-exe",
+  "version": "0.1.0",
+  "private": true,
+  "description": "KangXi.exe — Imperial & Modern multi-device Agent workbench with MCP memorials, Windows Bridge, and Cloudflare BYO backend",
+  "packageManager": "pnpm@12.21.0",
+  "scripts": {
+    "dev:client": "pnpm --filter @kangxi/client dev",
+    "dev:backend": "pnpm --filter @kangxi/cloudflare dev",
+    "build": "pnpm --filter @kangxi/protocol build && pnpm --filter @kangxi/app-core build && pnpm --filter @kangxi/client build",
+    "build:backend": "pnpm --filter @kangxi/cloudflare build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @kangxi/protocol test && pnpm --filter @kangxi/app-core test && pnpm --filter @kangxi/cloudflare test",
+    "tauri": "pnpm --filter @kangxi/client tauri"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

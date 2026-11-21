@@ -1,0 +1,27 @@
+{
+  "name": "@kangxi/cloudflare",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "cf dev",
+    "build": "cf build",
+    "deploy": "cf deploy --prebuilt --mode production",
+    "deploy:dry-run": "cf deploy --prebuilt --mode production --dry-run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kangxi/protocol": "workspace:*",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "2.0.0-rc.3",
+    "@cloudflare/workers-types": "^5.20261121.1",
+    "@types/node": "^22.15.0",
+    "cf": "1.0.0-rc.2",
+    "typescript": "^5.8.2",
+    "vite": "^7.3.1",
+    "vitest": "^3.1.1"
+  }
+}

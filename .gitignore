@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.cloudflare/
+.wrangler/
+target/
+apps/client/src-tauri/target/
+apps/client/src-tauri/gen/android/app/build/
+apps/client/src-tauri/gen/android/.gradle/
+apps/client/src-tauri/gen/android/local.properties
+apps/client/src-tauri/gen/android/keystore.properties
+
+# Secrets & local env
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+.dev.vars
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+.idea/
+.vscode/
+!.vscode/extensions.json

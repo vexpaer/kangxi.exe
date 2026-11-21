@@ -1,0 +1,77 @@
+name: Deploy Cloudflare Backend (Manual Approval Only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      d1_database_id:
+        description: "Cloudflare D1 Database UUID (falls back to CLOUDFLARE_D1_ID secret)"
+        required: false
+        default: ""
+      run_migrations:
+        description: "Apply D1 SQL migrations before deploying Worker"
+        type: boolean
+        default: true
+      worker_name:
+        description: "Worker name override (default: kangxi-backend)"
+        required: false
+        default: "kangxi-backend"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build, Migrate D1 & Deploy Worker
+    runs-on: ubuntu-latest
+    env:
+      CF_SEND_TELEMETRY: "false"
+      KANGXI_WORKER_NAME: ${{ inputs.worker_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build protocol & Cloudflare Worker
+        env:
+          CLOUDFLARE_D1_ID: ${{ inputs.d1_database_id || secrets.CLOUDFLARE_D1_ID }}
+        run: |
+          pnpm --filter @kangxi/protocol build
+          pnpm --filter @kangxi/cloudflare build
+          pnpm --filter @kangxi/cloudflare deploy:dry-run
+
+      - name: Apply D1 migrations
+        if: ${{ inputs.run_migrations }}
+        working-directory: services/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_ID: ${{ inputs.d1_database_id || secrets.CLOUDFLARE_D1_ID }}
+        run: |
+          if [ -z "$D1_ID" ]; then
+            echo "Error: Provide d1_database_id input or CLOUDFLARE_D1_ID secret."
+            exit 1
+          fi
+          pnpm exec cf d1 migrations apply "$D1_ID" --dir ./migrations
+
+      - name: Deploy Worker via cf CLI
+        working-directory: services/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_ID: ${{ inputs.d1_database_id || secrets.CLOUDFLARE_D1_ID }}
+        run: |
+          pnpm exec cf deploy --prebuilt --mode production | tee deploy.log
+          {
+            echo "### KangXi.exe Cloudflare Deployment Complete"
+            echo "- Worker Name: \`${KANGXI_WORKER_NAME}\`"
+            echo "- Migrations Applied: \`${{ inputs.run_migrations }}\`"
+            echo "- Next Step: Open your \`https://${KANGXI_WORKER_NAME}.<your-subdomain>.workers.dev/health\` endpoint and connect the Windows/Android client."
+          } >> "$GITHUB_STEP_SUMMARY"

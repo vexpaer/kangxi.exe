@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript-and-cloudflare:
+    name: Typecheck, Tests & Cloudflare Dry-Run
+    runs-on: ubuntu-latest
+    env:
+      CF_SEND_TELEMETRY: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared packages & client frontend
+        run: pnpm build
+
+      - name: Typecheck workspace
+        run: pnpm typecheck
+
+      - name: Run protocol, app-core & Cloudflare E2E loop tests
+        run: pnpm test
+
+      - name: Cloudflare Worker build & dry-run validation
+        run: |
+          pnpm --filter @kangxi/cloudflare build
+          pnpm --filter @kangxi/cloudflare deploy:dry-run
+
+  rust-bridge:
+    name: Rust Bridge Check & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test kangxi-bridge crate
+        run: cargo test --workspace --locked
