@@ -1,6 +1,6 @@
 [package]
 name = "kangxi-client"
-version = "0.1.0"
+version = "0.2.0"
 description = "KangXi.exe shared Windows & Android Tauri 2 client"
 authors = ["KangXi.exe Contributors"]
 edition = "2021"
@@ -25,6 +25,7 @@ kangxi-bridge = { path = "../../../crates/bridge" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
+tokio = { version = "1", features = ["net", "io-util", "time"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }

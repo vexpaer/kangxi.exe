@@ -1,3 +1,5 @@
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod local_hub;
 mod secure_store;
 
 use secure_store::StoredCredentials;
@@ -12,16 +14,21 @@ pub struct PlatformInfo {
     pub os: String,
     pub is_mobile: bool,
     pub bridge_supported: bool,
+    pub local_mode_supported: bool,
     pub app_version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeRuntimeState {
     pub running: bool,
-    pub keep_running_in_tray: bool,
+    pub keep_running_in_tray: boolean_alias::Bool,
     pub bridge_name: String,
     pub authorized_projects: HashMap<String, String>,
     pub last_error: Option<String>,
+}
+
+mod boolean_alias {
+    pub type Bool = bool;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +38,8 @@ pub struct ProviderProbeResult {
     pub version: Option<String>,
     pub supports_resume: bool,
     pub notes: Option<String>,
+    #[serde(default)]
+    pub resolved_path: Option<String>,
 }
 
 struct AppState {
@@ -40,6 +49,8 @@ struct AppState {
     authorized_projects: Mutex<HashMap<String, String>>,
     last_error: Mutex<Option<String>>,
     shutdown_tx: Mutex<Option<watch::Sender<bool>>>,
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    local_hub: std::sync::OnceLock<Arc<local_hub::LocalHub>>,
 }
 
 impl Default for AppState {
@@ -54,6 +65,8 @@ impl Default for AppState {
             authorized_projects: Mutex::new(HashMap::new()),
             last_error: Mutex::new(None),
             shutdown_tx: Mutex::new(None),
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            local_hub: std::sync::OnceLock::new(),
         }
     }
 }
@@ -66,6 +79,7 @@ fn get_platform_info() -> PlatformInfo {
         os,
         is_mobile,
         bridge_supported: !is_mobile,
+        local_mode_supported: !is_mobile,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
     }
 }
@@ -84,6 +98,239 @@ fn load_secure_credentials(app: AppHandle) -> Result<Option<StoredCredentials>, 
 fn clear_secure_credentials(app: AppHandle) -> Result<(), String> {
     secure_store::clear_credentials(&app)
 }
+
+// ---------------------------------------------------------------------------
+// Desktop Local-First + Auto-Import Commands (Zero Backend Required)
+// ---------------------------------------------------------------------------
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn get_hub(state: &Arc<AppState>) -> Result<Arc<local_hub::LocalHub>, String> {
+    state
+        .local_hub
+        .get()
+        .cloned()
+        .ok_or_else(|| "LocalHub not initialized".to_string())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+async fn local_get_workspace(
+    state: State<'_, Arc<AppState>>,
+    auto_scan: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let hub = get_hub(state.inner())?;
+    let resp = hub.get_workspace_response(auto_scan.unwrap_or(true)).await;
+    // Sync discovered local project paths into authorized_projects automatically for seamless remote bridge promotion
+    {
+        let mut auth = state.authorized_projects.lock().await;
+        for (pid, path) in &resp.project_paths {
+            auth.entry(pid.clone()).or_insert_with(|| path.clone());
+        }
+    }
+    serde_json::to_value(resp).map_err(|e| e.to_string())
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+async fn local_get_workspace(
+    _state: State<'_, Arc<AppState>>,
+    _auto_scan: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    Err("Local desktop mode is not available on mobile devices.".into())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+async fn local_rescan_import(state: State<'_, Arc<AppState>>) -> Result<serde_json::Value, String> {
+    let hub = get_hub(state.inner())?;
+    let (projects_found, sessions_found) = hub.rescan_and_import().await;
+    let resp = hub.get_workspace_response(false).await;
+    {
+        let mut auth = state.authorized_projects.lock().await;
+        for (pid, path) in &resp.project_paths {
+            auth.entry(pid.clone()).or_insert_with(|| path.clone());
+        }
+    }
+    Ok(serde_json::json!({
+        "projects_found": projects_found,
+        "sessions_found": sessions_found,
+        "workspace": resp
+    }))
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+async fn local_rescan_import(_state: State<'_, Arc<AppState>>) -> Result<serde_json::Value, String> {
+    Err("Local auto-import is only available on desktop.".into())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+async fn local_add_project(
+    state: State<'_, Arc<AppState>>,
+    name: String,
+    local_path: String,
+    description: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let hub = get_hub(state.inner())?;
+    let proj = hub
+        .add_local_project(name, local_path.clone(), description.unwrap_or_default())
+        .await?;
+    if let Some(pid) = proj.get("id").and_then(|v| v.as_str()) {
+        state
+            .authorized_projects
+            .lock()
+            .await
+            .insert(pid.to_string(), local_path);
+    }
+    Ok(proj)
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+async fn local_add_project(
+    _state: State<'_, Arc<AppState>>,
+    _name: String,
+    _local_path: String,
+    _description: Option<String>,
+) -> Result<serde_json::Value, String> {
+    Err("Local project folders are only supported on desktop.".into())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+async fn local_create_task(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    project_id: String,
+    agent_id: String,
+    title: String,
+    prompt: String,
+) -> Result<serde_json::Value, String> {
+    let hub = get_hub(state.inner())?;
+    hub.create_and_run_task(app, project_id, agent_id, title, prompt)
+        .await
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+async fn local_create_task(
+    _app: AppHandle,
+    _state: State<'_, Arc<AppState>>,
+    _project_id: String,
+    _agent_id: String,
+    _title: String,
+    _prompt: String,
+) -> Result<serde_json::Value, String> {
+    Err("Local task execution requires desktop.".into())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+async fn local_send_followup(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    task_id: String,
+    content: String,
+) -> Result<serde_json::Value, String> {
+    let hub = get_hub(state.inner())?;
+    hub.send_followup(app, task_id, content).await
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+async fn local_send_followup(
+    _app: AppHandle,
+    _state: State<'_, Arc<AppState>>,
+    _task_id: String,
+    _content: String,
+) -> Result<serde_json::Value, String> {
+    Err("Local session resume requires desktop.".into())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+async fn local_cancel_task(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    task_id: String,
+) -> Result<(), String> {
+    let hub = get_hub(state.inner())?;
+    hub.cancel_task(app, task_id).await
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+async fn local_cancel_task(
+    _app: AppHandle,
+    _state: State<'_, Arc<AppState>>,
+    _task_id: String,
+) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+async fn local_decide_memorial(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    memorial_id: String,
+    action: String,
+    selected_option_id: Option<String>,
+    comment: String,
+    instructions: Option<String>,
+    expected_version: u64,
+) -> Result<serde_json::Value, String> {
+    let hub = get_hub(state.inner())?;
+    hub.decide_memorial(
+        app,
+        memorial_id,
+        action,
+        selected_option_id,
+        comment,
+        instructions,
+        expected_version,
+    )
+    .await
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+async fn local_decide_memorial(
+    _app: AppHandle,
+    _state: State<'_, Arc<AppState>>,
+    _memorial_id: String,
+    _action: String,
+    _selected_option_id: Option<String>,
+    _comment: String,
+    _instructions: Option<String>,
+    _expected_version: u64,
+) -> Result<serde_json::Value, String> {
+    Err("Local memorial decisions require desktop.".into())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+async fn local_install_mcp_config(
+    state: State<'_, Arc<AppState>>,
+    target: String,
+) -> Result<String, String> {
+    let hub = get_hub(state.inner())?;
+    hub.install_local_mcp(&target).await
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+async fn local_install_mcp_config(
+    _state: State<'_, Arc<AppState>>,
+    _target: String,
+) -> Result<String, String> {
+    Err("Local MCP auto-install requires desktop.".into())
+}
+
+// ---------------------------------------------------------------------------
+// Optional Remote Bridge Commands (For Multi-Machine / Mobile Remote Control)
+// ---------------------------------------------------------------------------
 
 #[tauri::command]
 async fn get_bridge_state(state: State<'_, Arc<AppState>>) -> Result<BridgeRuntimeState, String> {
@@ -176,6 +423,7 @@ async fn probe_local_providers() -> Result<Vec<ProviderProbeResult>, String> {
             version: r.version,
             supports_resume: r.supports_resume,
             notes: r.notes,
+            resolved_path: r.resolved_path,
         })
         .collect())
 }
@@ -286,8 +534,8 @@ fn setup_desktop_tray(app: &AppHandle, state: Arc<AppState>) -> tauri::Result<()
 
     let show_i = MenuItem::with_id(app, "show", "打开 KangXi.exe 御案", true, None::<&str>)?;
     let stop_bridge_i =
-        MenuItem::with_id(app, "stop_bridge", "停止本地 Bridge", true, None::<&str>)?;
-    let quit_i = MenuItem::with_id(app, "quit", "完全退出（停止 Bridge）", true, None::<&str>)?;
+        MenuItem::with_id(app, "stop_bridge", "停止远程 Bridge", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "quit", "完全退出", true, None::<&str>)?;
 
     let menu = Menu::with_items(app, &[&show_i, &stop_bridge_i, &quit_i])?;
 
@@ -356,7 +604,13 @@ pub fn run() {
 
     builder
         .setup(move |app| {
-            // Hydrate previously authorized local project directories
+            // Initialize desktop zero-backend LocalHub + loopback MCP server synchronously
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            {
+                let hub = local_hub::LocalHub::init(app.handle());
+                let _ = state_for_setup.local_hub.set(hub);
+            }
+
             if let Ok(dir) = app.path().app_local_data_dir() {
                 let auth_file = dir.join("authorized_projects.json");
                 if let Ok(raw) = std::fs::read_to_string(auth_file) {
@@ -389,7 +643,6 @@ pub fn run() {
                     .try_lock()
                     .map(|g| *g)
                     .unwrap_or(false);
-                // SPEC Section 2: Only stay alive in tray if user explicitly opted in AND Bridge is running
                 if keep && running {
                     api.prevent_close();
                     let _ = window.hide();
@@ -404,7 +657,7 @@ pub fn run() {
             }
             #[cfg(any(target_os = "android", target_os = "ios"))]
             {
-                let _ = (window, event);
+                let _ = (window, event, &state_for_window);
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -412,6 +665,14 @@ pub fn run() {
             save_secure_credentials,
             load_secure_credentials,
             clear_secure_credentials,
+            local_get_workspace,
+            local_rescan_import,
+            local_add_project,
+            local_create_task,
+            local_send_followup,
+            local_cancel_task,
+            local_decide_memorial,
+            local_install_mcp_config,
             get_bridge_state,
             set_keep_bridge_in_tray,
             authorize_local_project,

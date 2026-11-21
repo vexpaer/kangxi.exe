@@ -63,7 +63,8 @@ impl ProviderAdapter for CodexAdapter {
     }
 
     async fn probe(&self) -> ProviderCapabilityReport {
-        let output = tokio::process::Command::new(&self.bin)
+        let resolved = super::resolve_cli_binary(&self.bin);
+        let output = build_command(&self.bin, None)
             .arg("--version")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -82,6 +83,7 @@ impl ProviderAdapter for CodexAdapter {
                         "Uses `codex exec --json --sandbox workspace-write` and `codex exec resume <thread_id>`."
                             .into(),
                     ),
+                    resolved_path: Some(resolved),
                 }
             }
             _ => ProviderCapabilityReport {
@@ -90,9 +92,10 @@ impl ProviderAdapter for CodexAdapter {
                 version: None,
                 supports_resume: false,
                 notes: Some(format!(
-                    "`{}` binary not found on PATH. Install OpenAI Codex CLI or configure path in Bridge settings.",
+                    "`{}` binary not found on PATH. Install OpenAI Codex CLI (`npm i -g @openai/codex`) and run `codex login`.",
                     self.bin
                 )),
+                resolved_path: None,
             },
         }
     }
@@ -103,7 +106,7 @@ impl ProviderAdapter for CodexAdapter {
         tx: mpsc::Sender<ProviderStreamEvent>,
         mut cancel_rx: oneshot::Receiver<()>,
     ) -> Result<()> {
-        let mut cmd = build_command(&self.bin, &req.cwd);
+        let mut cmd = build_command(&self.bin, Some(&req.cwd));
         if let Some(ref thread_id) = req.provider_session_id {
             cmd.args(["exec", "resume", thread_id, "--json", &req.prompt]);
         } else {

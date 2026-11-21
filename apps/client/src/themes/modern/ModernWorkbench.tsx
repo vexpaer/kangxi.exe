@@ -207,7 +207,8 @@ export function ModernWorkbench({
           <div className="sync-pill">
             <span
               className={`status-dot ${
-                store.connectionState === "online"
+                store.connectionState === "online" ||
+                store.connectionState === "local"
                   ? "is-online"
                   : store.connectionState === "sandbox"
                     ? "is-sandbox"
@@ -215,11 +216,13 @@ export function ModernWorkbench({
               }`}
             />
             <span>
-              {store.connectionState === "online"
-                ? `Live · #${store.latestSequence}`
-                : store.connectionState === "sandbox"
-                  ? "Sandbox Preview"
-                  : "Reconnecting"}
+              {store.connectionState === "local"
+                ? `Local · ${store.tasks.length} sessions`
+                : store.connectionState === "online"
+                  ? `Cloud Live · #${store.latestSequence}`
+                  : store.connectionState === "sandbox"
+                    ? "Sandbox Preview"
+                    : "Reconnecting"}
             </span>
           </div>
           <button

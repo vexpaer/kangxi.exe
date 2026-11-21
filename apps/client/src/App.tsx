@@ -13,7 +13,6 @@ export function App() {
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  // Global Ctrl+K / Cmd+K quick command palette shortcut
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -29,16 +28,18 @@ export function App() {
     return (
       <div className="boot-screen">
         <div className="gate-seal">御</div>
-        <p>正在开启 KangXi.exe...</p>
+        <p>正在探测本机 Agent 环境并自动导入历史会话...</p>
       </div>
     );
   }
 
-  const connected = Boolean(store.creds) || store.sandboxMode;
+  // Desktop boots straight into Local-First mode (workspaceMode === "local") without any backend gate!
+  // Only mobile/unconnected devices show ConnectionGate as the entry screen.
+  const ready = store.workspaceMode !== "unconnected";
 
   return (
     <>
-      {!connected ? (
+      {!ready ? (
         <ConnectionGate store={store} />
       ) : store.prefs.themeMode === "imperial" ? (
         <ImperialWorkbench
@@ -51,6 +52,14 @@ export function App() {
           store={store}
           onOpenNewTask={() => setNewTaskOpen(true)}
           onOpenPalette={() => setPaletteOpen(true)}
+        />
+      )}
+
+      {store.remoteModalOpen && (
+        <ConnectionGate
+          store={store}
+          asModal
+          onClose={() => store.setRemoteModalOpen(false)}
         />
       )}
 

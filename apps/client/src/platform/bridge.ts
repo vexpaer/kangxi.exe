@@ -1,9 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
+import type {
+  Agent,
+  DecisionAction,
+  Memorial,
+  Project,
+  Task,
+  TaskMessage,
+} from "@kangxi/protocol";
 
 export interface PlatformInfo {
   os: string;
   is_mobile: boolean;
   bridge_supported: boolean;
+  local_mode_supported: boolean;
   app_version: string;
 }
 
@@ -29,13 +38,30 @@ export interface ProviderProbeResult {
   version: string | null;
   supports_resume: boolean;
   notes: string | null;
+  resolved_path?: string | null;
+}
+
+export interface LocalWorkspaceResponse {
+  host_name: string;
+  local_mcp_url: string;
+  local_mcp_token: string;
+  codex_home: string | null;
+  claude_home: string | null;
+  scanned_files: number;
+  imported_session_count: number;
+  providers: ProviderProbeResult[];
+  projects: Project[];
+  agents: Agent[];
+  tasks: Task[];
+  task_messages: Record<string, TaskMessage[]>;
+  memorials: Memorial[];
+  project_paths: Record<string, string>;
 }
 
 export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-// In-memory fallback ONLY for non-Tauri browser preview (never stores tokens in localStorage)
 let memoryCreds: StoredCredentials | null = null;
 
 export async function getPlatformInfo(): Promise<PlatformInfo> {
@@ -47,7 +73,8 @@ export async function getPlatformInfo(): Promise<PlatformInfo> {
       os: "web",
       is_mobile: mobile,
       bridge_supported: false,
-      app_version: "0.1.0",
+      local_mode_supported: false,
+      app_version: "0.2.0",
     };
   }
   return invoke<PlatformInfo>("get_platform_info");
@@ -77,6 +104,109 @@ export async function clearSecureCredentials(): Promise<void> {
   }
   await invoke("clear_secure_credentials");
 }
+
+// ---------------------------------------------------------------------------
+// Desktop Local-First + Auto-Import APIs (Zero Backend Required)
+// ---------------------------------------------------------------------------
+
+export async function localGetWorkspace(
+  autoScan = true
+): Promise<LocalWorkspaceResponse> {
+  return invoke<LocalWorkspaceResponse>("local_get_workspace", {
+    autoScan,
+  });
+}
+
+export async function localRescanImport(): Promise<{
+  projects_found: number;
+  sessions_found: number;
+  workspace: LocalWorkspaceResponse;
+}> {
+  return invoke("local_rescan_import");
+}
+
+export async function localAddProject(params: {
+  name: string;
+  localPath: string;
+  description?: string;
+}): Promise<Project> {
+  return invoke<Project>("local_add_project", {
+    name: params.name,
+    localPath: params.localPath,
+    description: params.description ?? null,
+  });
+}
+
+export async function localCreateTask(params: {
+  projectId: string;
+  agentId: string;
+  title: string;
+  prompt: string;
+}): Promise<Task> {
+  return invoke<Task>("local_create_task", {
+    projectId: params.projectId,
+    agentId: params.agentId,
+    title: params.title,
+    prompt: params.prompt,
+  });
+}
+
+export async function localSendFollowup(params: {
+  taskId: string;
+  content: string;
+}): Promise<TaskMessage> {
+  return invoke<TaskMessage>("local_send_followup", {
+    taskId: params.taskId,
+    content: params.content,
+  });
+}
+
+export async function localCancelTask(taskId: string): Promise<void> {
+  await invoke("local_cancel_task", { taskId });
+}
+
+export async function localDecideMemorial(params: {
+  memorialId: string;
+  action: DecisionAction;
+  selectedOptionId?: string | null;
+  comment: string;
+  instructions?: string | null;
+  expectedVersion: number;
+}): Promise<Memorial> {
+  return invoke<Memorial>("local_decide_memorial", {
+    memorialId: params.memorialId,
+    action: params.action,
+    selectedOptionId: params.selectedOptionId ?? null,
+    comment: params.comment,
+    instructions: params.instructions ?? null,
+    expectedVersion: params.expectedVersion,
+  });
+}
+
+export async function localInstallMcpConfig(
+  target: "codex" | "claude_code"
+): Promise<string> {
+  return invoke<string>("local_install_mcp_config", { target });
+}
+
+export async function listenLocalHubUpdates(
+  cb: (payload: { kind?: string; title?: string; task_id?: string }) => void
+): Promise<() => void> {
+  if (!isTauriRuntime()) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlisten = await listen<{
+    kind?: string;
+    title?: string;
+    task_id?: string;
+  }>("kangxi:local-update", (event) => {
+    cb(event.payload ?? {});
+  });
+  return unlisten;
+}
+
+// ---------------------------------------------------------------------------
+// Remote Bridge & Native Desktop Utilities
+// ---------------------------------------------------------------------------
 
 export async function getBridgeState(): Promise<BridgeRuntimeState> {
   if (!isTauriRuntime()) {
@@ -124,7 +254,7 @@ export async function pickLocalDirectory(): Promise<string | null> {
   const selected = await dialog.open({
     directory: true,
     multiple: false,
-    title: "选择授权给本地 Bridge 的项目目录",
+    title: "选择本机项目文件夹",
   });
   return typeof selected === "string" ? selected : null;
 }
@@ -198,10 +328,6 @@ export async function sendNativeNotification(
   }
 }
 
-/**
- * Lightweight WebAudio synthesizer for Imperial jade seal stamp thud & chime.
- * Zero external audio assets required; respects user mute / reduced-motion settings.
- */
 export function playImperialStampSound(enabled: boolean): void {
   if (!enabled || typeof window === "undefined") return;
   try {
@@ -213,7 +339,6 @@ export function playImperialStampSound(enabled: boolean): void {
     const ctx = new AudioCtx();
     const now = ctx.currentTime;
 
-    // Resonant wooden desk thud
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = "triangle";
@@ -226,7 +351,6 @@ export function playImperialStampSound(enabled: boolean): void {
     osc.start(now);
     osc.stop(now + 0.19);
 
-    // Subtle bronze/jade overtone chime
     const chime = ctx.createOscillator();
     const chimeGain = ctx.createGain();
     chime.type = "sine";

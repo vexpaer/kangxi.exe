@@ -23,24 +23,47 @@ import {
   getAutostartEnabled,
   getBridgeState,
   getPlatformInfo,
+  listenLocalHubUpdates,
   loadSecureCredentials,
+  localAddProject,
+  localCancelTask,
+  localCreateTask,
+  localDecideMemorial,
+  localGetWorkspace,
+  localInstallMcpConfig,
+  localRescanImport,
+  localSendFollowup,
+  pickLocalDirectory,
   playImperialStampSound,
   probeLocalProviders,
   saveSecureCredentials,
   sendNativeNotification,
   type BridgeRuntimeState,
+  type LocalWorkspaceResponse,
   type PlatformInfo,
   type ProviderProbeResult,
   type StoredCredentials,
 } from "../platform/bridge";
 
 export type NavSection = "inbox" | "tasks" | "bridge" | "mcp" | "settings";
+export type WorkspaceMode = "local" | "remote" | "sandbox" | "unconnected";
 
 export interface UiPreferences {
   themeMode: ThemeMode;
   reportStyle: ReportStyle;
   soundEnabled: boolean;
   reducedMotion: boolean;
+}
+
+export interface LocalEnvMeta {
+  host_name: string;
+  local_mcp_url: string;
+  local_mcp_token: string;
+  codex_home: string | null;
+  claude_home: string | null;
+  scanned_files: number;
+  imported_session_count: number;
+  project_paths: Record<string, string>;
 }
 
 const PREFS_KEY = "kangxi_ui_prefs_v1";
@@ -177,7 +200,7 @@ function buildSandboxData(): {
       name: "WIN11-STUDIO",
       hostname: "DESKTOP-KANGXI",
       platform: "windows",
-      bridge_version: "0.1.0",
+      bridge_version: "0.2.0",
       status: "online",
       last_seen_at: now,
       providers: [
@@ -229,7 +252,7 @@ function buildSandboxData(): {
       ],
       risk_level: "high",
       risk_notes: "涉及生产 D1 实例 DDL 变更，需人工明确批准后方可继续。",
-      context_summary: "源自受管会话 ses_demo_01（Codex · WIN11-STUDIO），批准后 Bridge 将自动唤醒原线程。",
+      context_summary: "源自受管会话 ses_demo_01（Codex · WIN11-STUDIO），批准后自动恢复原线程。",
       status: "pending",
       delivery_status: "queued",
       resume_status: "waiting_for_bridge",
@@ -247,22 +270,15 @@ function buildSandboxData(): {
       session_id: null,
       task_id: null,
       title: "是否切换 Webhook 重试退避为指数抖动策略？",
-      content: `在外部终端排查超时重放日志时，发现固定 5s 重试会导致瞬时重试风暴。\n\n建议改为：\n- 初始退避 2s，上限 60s，附带 ±20% jitter\n- 保留幂等键 24 小时\n\n注：当前为外部 MCP-only 会话，朱批保存后由该 Agent 主动调用 get_memorial_reply 获取结果。`,
+      content: `在外部终端排查超时重放日志时，发现固定 5s 重试会导致瞬时重试风暴。\n\n建议改为：\n- 初始退避 2s，上限 60s，附带 ±20% jitter\n- 保留幂等键 24 小时`,
       request_type: "decision",
       options: [
-        {
-          id: "opt_jitter",
-          label: "采用指数抖动退避",
-          recommended: true,
-        },
-        {
-          id: "opt_keep",
-          label: "维持现有固定间隔",
-        },
+        { id: "opt_jitter", label: "采用指数抖动退避", recommended: true },
+        { id: "opt_keep", label: "维持现有固定间隔" },
       ],
       risk_level: "medium",
       risk_notes: "仅调整重试调度器，不改动账本写入逻辑。",
-      context_summary: "MCP-only 外部会话（无须 Bridge 强行唤醒）。",
+      context_summary: "MCP-only 外部会话。",
       status: "pending",
       delivery_status: "queued",
       resume_status: "not_supported",
@@ -271,46 +287,6 @@ function buildSandboxData(): {
       source: "mcp:sandbox",
       created_at: now,
       updated_at: now,
-    },
-    {
-      id: "mem_demo_03",
-      owner_id: "own_demo",
-      project_id: "prj_core",
-      agent_id: "agt_claude",
-      session_id: "ses_demo_02",
-      task_id: "tsk_demo_02",
-      title: "合并认证令牌吊销中间件补丁",
-      content: `已补全 credentials.revoked_at 实时校验，并在吊销后通知 SyncHub Durable Object 断开对应 WebSocket 连接。\n\n全部 6 项端到端用例通过。请求准予合入主干。`,
-      request_type: "approval",
-      options: [],
-      risk_level: "low",
-      risk_notes: "纯安全增强补丁，向后兼容。",
-      context_summary: "已完成端到端闭环验证。",
-      status: "approved",
-      delivery_status: "acknowledged",
-      resume_status: "resumed",
-      decision: {
-        id: "dec_demo_03",
-        memorial_id: "mem_demo_03",
-        action: "approve",
-        selected_option_id: null,
-        comment: "准奏。吊销即断连，甚合朕意。",
-        instructions: "合入后顺手补齐 README 安全章节。",
-        decided_by_device_id: "crd_android",
-        decided_by_label: "Android 随身御批",
-        delivery_status: "acknowledged",
-        resume_status: "resumed",
-        bridge_claimed_at: earlier,
-        agent_resumed_at: earlier,
-        resume_error: null,
-        version: 2,
-        created_at: earlier,
-        updated_at: earlier,
-      },
-      version: 2,
-      source: "mcp:sandbox",
-      created_at: older,
-      updated_at: earlier,
     },
   ];
 
@@ -331,25 +307,6 @@ function buildSandboxData(): {
       error_message: null,
       version: 2,
       source: "Android 随身御批",
-      created_at: older,
-      updated_at: earlier,
-    },
-    {
-      id: "tsk_demo_02",
-      owner_id: "own_demo",
-      project_id: "prj_core",
-      agent_id: "agt_claude",
-      session_id: "ses_demo_02",
-      bridge_id: "brg_win11",
-      title: "实现凭证吊销即时踢出 WebSocket 连接",
-      prompt: "在 POST /api/v1/credentials/:id/revoke 中调用 SyncHub /kick 并补充测试。",
-      status: "completed",
-      delivery_status: "acknowledged",
-      resume_status: "resumed",
-      summary: "已完成实现与端到端测试验证。",
-      error_message: null,
-      version: 4,
-      source: "Windows 御案",
       created_at: older,
       updated_at: earlier,
     },
@@ -376,45 +333,7 @@ function buildSandboxData(): {
         sender_type: "agent",
         sender_id: "agt_codex",
         kind: "agent_report",
-        content: "已运行 EXPLAIN QUERY PLAN，确认缺少 (owner_id, sequence) 复合索引。正在生成迁移草案。",
-        metadata: {},
-        truncated: false,
-        created_at: earlier,
-      },
-      {
-        id: "msg_3",
-        task_id: "tsk_demo_01",
-        session_id: "ses_demo_01",
-        sender_type: "agent",
-        sender_id: "agt_codex",
-        kind: "memorial_notice",
-        content: "[Memorial mem_demo_01] 已递呈风险确认奏折，当前暂停等待朱批。",
-        metadata: { memorial_id: "mem_demo_01" },
-        truncated: false,
-        created_at: earlier,
-      },
-    ],
-    tsk_demo_02: [
-      {
-        id: "msg_4",
-        task_id: "tsk_demo_02",
-        session_id: "ses_demo_02",
-        sender_type: "user",
-        sender_id: "own_demo",
-        kind: "user_prompt",
-        content: "在 POST /api/v1/credentials/:id/revoke 中调用 SyncHub /kick 并补充测试。",
-        metadata: {},
-        truncated: false,
-        created_at: older,
-      },
-      {
-        id: "msg_5",
-        task_id: "tsk_demo_02",
-        session_id: "ses_demo_02",
-        sender_type: "agent",
-        sender_id: "agt_claude",
-        kind: "task_result",
-        content: "已完成 SyncHub /kick 接线并补充端到端吊销验证，全部检查通过。",
+        content: "已运行 EXPLAIN QUERY PLAN，确认缺少 (owner_id, sequence) 复合索引。",
         metadata: {},
         truncated: false,
         created_at: earlier,
@@ -422,46 +341,15 @@ function buildSandboxData(): {
     ],
   };
 
-  const credentials: CredentialRecord[] = [
-    {
-      id: "crd_win",
-      owner_id: "own_demo",
-      label: "Windows 御案",
-      scope: "owner",
-      device_platform: "windows",
-      agent_id: null,
-      bridge_id: null,
-      allowed_project_ids: null,
-      token_prefix: "kx_own_demo",
-      last_used_at: now,
-      revoked_at: null,
-      created_at: older,
-    },
-    {
-      id: "crd_android",
-      owner_id: "own_demo",
-      label: "Android 随身御批",
-      scope: "device",
-      device_platform: "android",
-      agent_id: null,
-      bridge_id: null,
-      allowed_project_ids: null,
-      token_prefix: "kx_dev_demo",
-      last_used_at: earlier,
-      revoked_at: null,
-      created_at: older,
-    },
-  ];
-
   return {
-    owner: { id: "own_demo", name: "康熙（本地预览）" },
+    owner: { id: "own_demo", name: "康熙（演示沙盒）" },
     projects,
     agents,
     bridges,
     memorials,
     tasks,
     taskMessages,
-    credentials,
+    credentials: [],
   };
 }
 
@@ -470,17 +358,22 @@ export function useKangXiStore() {
     os: "web",
     is_mobile: false,
     bridge_supported: false,
-    app_version: "0.1.0",
+    local_mode_supported: false,
+    app_version: "0.2.0",
   });
   const [prefs, setPrefs] = useState<UiPreferences>(loadPreferences);
   const [nav, setNav] = useState<NavSection>("inbox");
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("unconnected");
+  const [remoteModalOpen, setRemoteModalOpen] = useState(false);
+
   const [creds, setCreds] = useState<StoredCredentials | null>(null);
-  const [sandboxMode, setSandboxMode] = useState(false);
   const [loadingCreds, setLoadingCreds] = useState(true);
   const [connectionState, setConnectionState] = useState<
-    "disconnected" | "connecting" | "online" | "reconnecting" | "sandbox"
+    "local" | "disconnected" | "connecting" | "online" | "reconnecting" | "sandbox"
   >("disconnected");
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [localEnv, setLocalEnv] = useState<LocalEnvMeta | null>(null);
+  const [rescanning, setRescanning] = useState(false);
 
   const [owner, setOwner] = useState<{ id: string; name: string }>({
     id: "",
@@ -507,32 +400,43 @@ export function useKangXiStore() {
 
   const [selectedMemorialId, setSelectedMemorialId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ id: number; text: string; tone: "ok" | "warn" | "err" } | null>(null);
+  const [toast, setToast] = useState<{
+    id: number;
+    text: string;
+    tone: "ok" | "warn" | "err";
+  } | null>(null);
 
   const draftStoreRef = useRef<OfflineDraftStore>(new OfflineDraftStore());
   const [draftTick, setDraftTick] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const seqRef = useRef(0);
 
-  const api = useMemo(() => {
-    if (!creds) return null;
-    return new KangXiApiClient({ baseUrl: creds.server_url, token: creds.token });
-  }, [creds]);
+  const sandboxMode = workspaceMode === "sandbox";
+  const localMode = workspaceMode === "local";
 
-  const showToast = useCallback((text: string, tone: "ok" | "warn" | "err" = "ok") => {
-    setToast({ id: Date.now(), text, tone });
-  }, []);
+  const api = useMemo(() => {
+    if (!creds || workspaceMode !== "remote") return null;
+    return new KangXiApiClient({ baseUrl: creds.server_url, token: creds.token });
+  }, [creds, workspaceMode]);
+
+  const showToast = useCallback(
+    (text: string, tone: "ok" | "warn" | "err" = "ok") => {
+      setToast({ id: Date.now(), text, tone });
+    },
+    []
+  );
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3600);
+    const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Apply theme & motion attributes to document root
   useEffect(() => {
     document.documentElement.dataset.theme = prefs.themeMode;
-    document.documentElement.dataset.motion = prefs.reducedMotion ? "reduced" : "full";
+    document.documentElement.dataset.motion = prefs.reducedMotion
+      ? "reduced"
+      : "full";
     try {
       localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
     } catch {
@@ -544,7 +448,81 @@ export function useKangXiStore() {
     setPrefs((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  // Hydrate drafts + platform info + secure credentials on boot
+  const applyLocalWorkspace = useCallback((ws: LocalWorkspaceResponse, selectDefaultNav = false) => {
+    setOwner({ id: "local_owner", name: `本机御案 · ${ws.host_name}` });
+    setLocalEnv({
+      host_name: ws.host_name,
+      local_mcp_url: ws.local_mcp_url,
+      local_mcp_token: ws.local_mcp_token,
+      codex_home: ws.codex_home,
+      claude_home: ws.claude_home,
+      scanned_files: ws.scanned_files,
+      imported_session_count: ws.imported_session_count,
+      project_paths: ws.project_paths,
+    });
+    setProviderProbes(ws.providers);
+    setProjects(ws.projects);
+    setAgents(ws.agents);
+    setTasks(ws.tasks);
+    setTaskMessages(ws.task_messages);
+    setMemorials(ws.memorials);
+    setCredentials([]);
+    setBridges([
+      {
+        id: "brg_local",
+        owner_id: "local_owner",
+        name: `${ws.host_name}（本机直连）`,
+        hostname: ws.host_name,
+        platform: "windows",
+        bridge_version: "local",
+        status: "online",
+        last_seen_at: new Date().toISOString(),
+        providers: ws.providers.map((p) => ({
+          provider: p.provider as "codex" | "claude_code" | "mcp_external",
+          available: p.available,
+          version: p.version,
+          supports_resume: p.supports_resume,
+          notes: p.notes ?? undefined,
+        })),
+        authorized_project_ids: Object.keys(ws.project_paths),
+        version: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+    setBridgeRuntime((prev) => ({
+      ...prev,
+      authorized_projects: { ...prev.authorized_projects, ...ws.project_paths },
+    }));
+    setSelectedMemorialId((prev) => prev ?? ws.memorials[0]?.id ?? null);
+    setSelectedTaskId((prev) => prev ?? ws.tasks[0]?.id ?? null);
+
+    // If first boot in local mode has imported Codex/Claude sessions but no pending memorials yet,
+    // land directly on Tasks & Sessions so the user immediately sees their auto-imported sessions!
+    if (selectDefaultNav && ws.memorials.length === 0 && ws.tasks.length > 0) {
+      setNav("tasks");
+    }
+  }, []);
+
+  const refreshLocalWorkspace = useCallback(
+    async (autoScan = false) => {
+      try {
+        const ws = await localGetWorkspace(autoScan);
+        applyLocalWorkspace(ws, false);
+      } catch (err) {
+        showToast(
+          `读取本机环境失败：${err instanceof Error ? err.message : String(err)}`,
+          "err"
+        );
+      }
+    },
+    [applyLocalWorkspace, showToast]
+  );
+
+  // Boot sequence:
+  // 1. If saved remote credentials exist -> connect to remote Cloudflare backend
+  // 2. Otherwise on Desktop (Windows) -> boot STRAIGHT into Local-First Mode with T3Code-style Auto-Import (NO backend required!)
+  // 3. Otherwise on Mobile (Android) -> show Pairing / Connection Gate
   useEffect(() => {
     try {
       draftStoreRef.current.hydrate(localStorage.getItem(DRAFTS_KEY));
@@ -565,20 +543,68 @@ export function useKangXiStore() {
       setPlatform(info);
       setBridgeRuntime(bState);
       setAutostartEnabledState(auto);
-      if (info.bridge_supported) {
-        probeLocalProviders().then((p) => {
-          if (active) setProviderProbes(p);
-        });
-      }
+
       if (savedCreds && savedCreds.server_url && savedCreds.token) {
         setCreds(savedCreds);
+        setWorkspaceMode("remote");
+        if (info.bridge_supported) {
+          probeLocalProviders().then((p) => {
+            if (active) setProviderProbes(p);
+          });
+        }
+      } else if (info.local_mode_supported) {
+        // Desktop zero-backend Local-First boot + automatic Codex/Claude discovery!
+        setWorkspaceMode("local");
+        setConnectionState("local");
+        try {
+          const ws = await localGetWorkspace(true);
+          if (!active) return;
+          applyLocalWorkspace(ws, true);
+          if (ws.imported_session_count > 0) {
+            showToast(
+              `本机直连就绪：已自动导入 ${ws.projects.length} 个项目与 ${ws.imported_session_count} 条历史会话（Codex / Claude Code）`,
+              "ok"
+            );
+          }
+        } catch (err) {
+          if (active) {
+            showToast(
+              `本机扫描提示：${err instanceof Error ? err.message : String(err)}`,
+              "warn"
+            );
+          }
+        }
+      } else {
+        setWorkspaceMode("unconnected");
       }
-      setLoadingCreds(false);
+
+      if (active) setLoadingCreds(false);
     })();
+
     return () => {
       active = false;
     };
-  }, []);
+  }, [applyLocalWorkspace, showToast]);
+
+  // Listen to real-time local streaming & loopback MCP events when in Local Mode
+  useEffect(() => {
+    if (workspaceMode !== "local") return;
+    let unlisten: (() => void) | null = null;
+    listenLocalHubUpdates((payload) => {
+      if (payload.kind === "memorial_created") {
+        sendNativeNotification(
+          "KangXi.exe · 本机新奏折呈递",
+          payload.title || "请移步御览"
+        );
+      }
+      void refreshLocalWorkspace(false);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [workspaceMode, refreshLocalWorkspace]);
 
   const persistDrafts = useCallback(() => {
     try {
@@ -590,6 +616,10 @@ export function useKangXiStore() {
   }, []);
 
   const refreshSnapshot = useCallback(async () => {
+    if (workspaceMode === "local") {
+      await refreshLocalWorkspace(false);
+      return;
+    }
     if (!api) return;
     try {
       setSyncError(null);
@@ -612,28 +642,25 @@ export function useKangXiStore() {
         showToast("当前设备凭证已失效或被吊销，请重新配对。", "err");
       }
     }
-  }, [api, showToast]);
+  }, [api, workspaceMode, refreshLocalWorkspace, showToast]);
 
   const loadTaskTimeline = useCallback(
     async (taskId: string) => {
-      if (sandboxMode) return;
-      if (!api) return;
+      if (workspaceMode !== "remote" || !api) return;
       try {
         const res = await api.getTaskMessages(taskId);
         setTaskMessages((prev) => ({ ...prev, [taskId]: res.messages }));
-        setTasks((prev) =>
-          prev.map((t) => (t.id === taskId ? res.task : t))
-        );
+        setTasks((prev) => prev.map((t) => (t.id === taskId ? res.task : t)));
       } catch {
         // ignore transient error
       }
     },
-    [api, sandboxMode]
+    [api, workspaceMode]
   );
 
-  // Real-time WebSocket + Cursor Catch-Up loop
+  // Remote Cloudflare WebSocket + Cursor Catch-Up loop (ONLY active in remote mode)
   useEffect(() => {
-    if (!api || sandboxMode) return;
+    if (!api || workspaceMode !== "remote") return;
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let backoff = 1500;
@@ -673,7 +700,6 @@ export function useKangXiStore() {
           if (cancelled) return;
           backoff = 1500;
           setConnectionState("online");
-          // Catch up any events missed during disconnect via cursor
           try {
             const catchup = await api.getEvents(seqRef.current);
             if (catchup.events.length > 0) {
@@ -727,19 +753,64 @@ export function useKangXiStore() {
         wsRef.current = null;
       }
     };
-  }, [api, sandboxMode, refreshSnapshot, loadTaskTimeline]);
+  }, [api, workspaceMode, refreshSnapshot, loadTaskTimeline]);
 
-  // Load selected task timeline automatically
   useEffect(() => {
     if (selectedTaskId) {
       void loadTaskTimeline(selectedTaskId);
     }
   }, [selectedTaskId, loadTaskTimeline]);
 
+  const rescanLocalImport = useCallback(async () => {
+    if (!platform.local_mode_supported) return;
+    setRescanning(true);
+    try {
+      const res = await localRescanImport();
+      applyLocalWorkspace(res.workspace, false);
+      showToast(
+        `自动扫描完成：发现 ${res.projects_found} 个本机项目、${res.sessions_found} 条 Codex / Claude 会话。`,
+        "ok"
+      );
+    } catch (err) {
+      showToast(
+        `扫描失败：${err instanceof Error ? err.message : String(err)}`,
+        "err"
+      );
+    } finally {
+      setRescanning(false);
+    }
+  }, [platform.local_mode_supported, applyLocalWorkspace, showToast]);
+
+  const installLocalMcp = useCallback(
+    async (target: "codex" | "claude_code") => {
+      try {
+        const msg = await localInstallMcpConfig(target);
+        showToast(msg, "ok");
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : String(err), "err");
+      }
+    },
+    [showToast]
+  );
+
+  const switchToLocalMode = useCallback(async () => {
+    if (!platform.local_mode_supported) return;
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setWorkspaceMode("local");
+    setConnectionState("local");
+    setRemoteModalOpen(false);
+    await refreshLocalWorkspace(true);
+    showToast("已切换回本机直连模式（无需云端后端）。", "ok");
+  }, [platform.local_mode_supported, refreshLocalWorkspace, showToast]);
+
   const enterSandbox = useCallback(() => {
     const data = buildSandboxData();
-    setSandboxMode(true);
+    setWorkspaceMode("sandbox");
     setConnectionState("sandbox");
+    setRemoteModalOpen(false);
     setOwner(data.owner);
     setProjects(data.projects);
     setAgents(data.agents);
@@ -750,15 +821,16 @@ export function useKangXiStore() {
     setCredentials(data.credentials);
     setSelectedMemorialId(data.memorials[0]?.id ?? null);
     setSelectedTaskId(data.tasks[0]?.id ?? null);
-    showToast("已进入本地演示沙盒，随时可在设置中连接真实 Cloudflare 后端。", "warn");
+    showToast("已进入演示沙盒模式。", "warn");
   }, [showToast]);
 
   const connectWithCredentials = useCallback(
     async (next: StoredCredentials) => {
       await saveSecureCredentials(next);
-      setSandboxMode(false);
       setCreds(next);
-      showToast("已安全保存凭证并连接后端。", "ok");
+      setWorkspaceMode("remote");
+      setRemoteModalOpen(false);
+      showToast("已安全保存凭证并连接 Cloudflare 远程后端。", "ok");
     },
     [showToast]
   );
@@ -770,12 +842,19 @@ export function useKangXiStore() {
     }
     await clearSecureCredentials();
     setCreds(null);
-    setSandboxMode(false);
-    setConnectionState("disconnected");
-    setMemorials([]);
-    setTasks([]);
-    showToast("已退出连接并清除本机凭证。", "ok");
-  }, [showToast]);
+    if (platform.local_mode_supported) {
+      setWorkspaceMode("local");
+      setConnectionState("local");
+      await refreshLocalWorkspace(true);
+      showToast("已断开云端后端，自动切回本机直连模式。", "ok");
+    } else {
+      setWorkspaceMode("unconnected");
+      setConnectionState("disconnected");
+      setMemorials([]);
+      setTasks([]);
+      showToast("已退出连接并清除本机凭证。", "ok");
+    }
+  }, [platform.local_mode_supported, refreshLocalWorkspace, showToast]);
 
   const getDraft = useCallback(
     (memorialId: string): DecisionDraft | undefined => {
@@ -813,7 +892,6 @@ export function useKangXiStore() {
       const idempotencyKey =
         existingDraft?.idempotency_key ?? crypto.randomUUID();
 
-      // Save offline draft FIRST so nothing is ever lost on network drop or 409 conflict
       draftStoreRef.current.save({
         memorial_id: params.memorial.id,
         action: params.action,
@@ -825,7 +903,34 @@ export function useKangXiStore() {
       });
       persistDrafts();
 
-      if (sandboxMode) {
+      if (workspaceMode === "local") {
+        try {
+          const updated = await localDecideMemorial({
+            memorialId: params.memorial.id,
+            action: params.action,
+            selectedOptionId: params.selected_option_id ?? null,
+            comment: params.comment,
+            instructions: params.instructions || null,
+            expectedVersion: params.memorial.version,
+          });
+          setMemorials((prev) =>
+            prev.map((m) => (m.id === updated.id ? updated : m))
+          );
+          draftStoreRef.current.clear(params.memorial.id);
+          persistDrafts();
+          playImperialStampSound(prefs.soundEnabled);
+          showToast("本机朱批已落印保存。", "ok");
+          return { ok: true };
+        } catch (err) {
+          showToast(
+            err instanceof Error ? err.message : String(err),
+            "err"
+          );
+          return { ok: false };
+        }
+      }
+
+      if (workspaceMode === "sandbox") {
         const now = new Date().toISOString();
         const nextStatus =
           params.action === "reject"
@@ -833,11 +938,12 @@ export function useKangXiStore() {
             : params.action === "needs_info"
               ? "needs_info"
               : "approved";
-        const isManaged = params.memorial.resume_status === "waiting_for_bridge";
+        const isManaged =
+          params.memorial.resume_status === "waiting_for_bridge";
         const updated: Memorial = {
           ...params.memorial,
           status: nextStatus,
-          delivery_status: isManaged ? "acknowledged" : "acknowledged",
+          delivery_status: "acknowledged",
           resume_status: isManaged ? "resumed" : "not_supported",
           version: params.memorial.version + 1,
           updated_at: now,
@@ -866,7 +972,7 @@ export function useKangXiStore() {
         draftStoreRef.current.clear(params.memorial.id);
         persistDrafts();
         playImperialStampSound(prefs.soundEnabled);
-        showToast("朱批落印成功（预览沙盒）。", "ok");
+        showToast("朱批落印成功（演示沙盒）。", "ok");
         return { ok: true };
       }
 
@@ -891,7 +997,9 @@ export function useKangXiStore() {
         return { ok: true };
       } catch (err) {
         if (err instanceof ApiError && err.status === 409) {
-          const details = err.details as { current_memorial?: Memorial } | undefined;
+          const details = err.details as
+            | { current_memorial?: Memorial }
+            | undefined;
           const serverMem = details?.current_memorial;
           if (serverMem) {
             draftStoreRef.current.markConflict(params.memorial.id, serverMem);
@@ -899,7 +1007,10 @@ export function useKangXiStore() {
             setMemorials((prev) =>
               prev.map((m) => (m.id === serverMem.id ? serverMem : m))
             );
-            showToast("检测到并发批复冲突：已保留您的本地草稿，并展示服务端现行批复。", "warn");
+            showToast(
+              "检测到并发批复冲突：已保留您的本地草稿，并展示服务端现行批复。",
+              "warn"
+            );
             return { ok: false, conflict: serverMem };
           }
         }
@@ -910,7 +1021,7 @@ export function useKangXiStore() {
         return { ok: false };
       }
     },
-    [api, sandboxMode, persistDrafts, prefs.soundEnabled, showToast]
+    [api, workspaceMode, persistDrafts, prefs.soundEnabled, showToast]
   );
 
   const createTask = useCallback(
@@ -920,7 +1031,28 @@ export function useKangXiStore() {
       title: string;
       prompt: string;
     }) => {
-      if (sandboxMode) {
+      if (workspaceMode === "local") {
+        try {
+          const task = await localCreateTask({
+            projectId: input.project_id,
+            agentId: input.agent_id,
+            title: input.title,
+            prompt: input.prompt,
+          });
+          await refreshLocalWorkspace(false);
+          setSelectedTaskId(task.id);
+          setNav("tasks");
+          showToast("已在本机直接启动 Agent 执行任务。", "ok");
+        } catch (err) {
+          showToast(
+            err instanceof Error ? err.message : String(err),
+            "err"
+          );
+        }
+        return;
+      }
+
+      if (workspaceMode === "sandbox") {
         const now = new Date().toISOString();
         const id = `tsk_${Date.now()}`;
         const task: Task = {
@@ -938,7 +1070,7 @@ export function useKangXiStore() {
           summary: "演示任务已入队。",
           error_message: null,
           version: 1,
-          source: "本地预览",
+          source: "演示沙盒",
           created_at: now,
           updated_at: now,
         };
@@ -958,7 +1090,7 @@ export function useKangXiStore() {
         setTaskMessages((prev) => ({ ...prev, [id]: [msg] }));
         setSelectedTaskId(id);
         setNav("tasks");
-        showToast("已下达新任务（预览沙盒）。", "ok");
+        showToast("已下达新任务（演示沙盒）。", "ok");
         return;
       }
 
@@ -970,12 +1102,26 @@ export function useKangXiStore() {
       setNav("tasks");
       showToast("任务已提交至后端队列。", "ok");
     },
-    [api, sandboxMode, showToast]
+    [api, workspaceMode, refreshLocalWorkspace, showToast]
   );
 
   const sendTaskFollowup = useCallback(
     async (taskId: string, content: string) => {
-      if (sandboxMode) {
+      if (workspaceMode === "local") {
+        try {
+          await localSendFollowup({ taskId, content });
+          await refreshLocalWorkspace(false);
+          showToast("已在本机恢复原会话继续执行。", "ok");
+        } catch (err) {
+          showToast(
+            err instanceof Error ? err.message : String(err),
+            "err"
+          );
+        }
+        return;
+      }
+
+      if (workspaceMode === "sandbox") {
         const now = new Date().toISOString();
         const msg: TaskMessage = {
           id: `msg_${Date.now()}`,
@@ -993,9 +1139,10 @@ export function useKangXiStore() {
           ...prev,
           [taskId]: [...(prev[taskId] ?? []), msg],
         }));
-        showToast("续旨已追加（预览沙盒）。", "ok");
+        showToast("续旨已追加（演示沙盒）。", "ok");
         return;
       }
+
       if (!api) return;
       const res = await api.appendTaskMessage(taskId, { content });
       setTasks((prev) => prev.map((t) => (t.id === taskId ? res.task : t)));
@@ -1005,12 +1152,18 @@ export function useKangXiStore() {
       }));
       showToast("续旨已派发。", "ok");
     },
-    [api, sandboxMode, showToast]
+    [api, workspaceMode, refreshLocalWorkspace, showToast]
   );
 
   const cancelTask = useCallback(
     async (taskId: string) => {
-      if (sandboxMode) {
+      if (workspaceMode === "local") {
+        await localCancelTask(taskId);
+        await refreshLocalWorkspace(false);
+        showToast("已终止本机 Agent 进程。", "warn");
+        return;
+      }
+      if (workspaceMode === "sandbox") {
         setTasks((prev) =>
           prev.map((t) => (t.id === taskId ? { ...t, status: "cancelled" } : t))
         );
@@ -1022,12 +1175,32 @@ export function useKangXiStore() {
       setTasks((prev) => prev.map((t) => (t.id === taskId ? res.task : t)));
       showToast("任务已发送取消指令。", "warn");
     },
-    [api, sandboxMode, showToast]
+    [api, workspaceMode, refreshLocalWorkspace, showToast]
   );
 
   const createProject = useCallback(
-    async (input: { name: string; description?: string }) => {
-      if (sandboxMode) {
+    async (input: { name: string; description?: string; localPath?: string }) => {
+      if (workspaceMode === "local") {
+        let dir = input.localPath;
+        if (!dir) {
+          dir = (await pickLocalDirectory()) ?? undefined;
+        }
+        if (!dir) return null;
+        const folderName =
+          input.name.trim() ||
+          dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ||
+          "Local Project";
+        const proj = await localAddProject({
+          name: folderName,
+          localPath: dir,
+          description: input.description,
+        });
+        await refreshLocalWorkspace(false);
+        showToast(`已导入本机项目：${proj.name}`, "ok");
+        return proj;
+      }
+
+      if (workspaceMode === "sandbox") {
         const now = new Date().toISOString();
         const proj: Project = {
           id: `prj_${Date.now()}`,
@@ -1053,7 +1226,7 @@ export function useKangXiStore() {
       showToast(`已创建项目 ${res.project.name}`, "ok");
       return res.project;
     },
-    [api, sandboxMode, agents, bridges, showToast]
+    [api, workspaceMode, refreshLocalWorkspace, agents, bridges, showToast]
   );
 
   const pendingCount = useMemo(
@@ -1067,9 +1240,15 @@ export function useKangXiStore() {
     updatePrefs,
     nav,
     setNav,
+    workspaceMode,
+    localMode,
+    sandboxMode,
+    localEnv,
+    rescanning,
+    remoteModalOpen,
+    setRemoteModalOpen,
     creds,
     api,
-    sandboxMode,
     loadingCreds,
     connectionState,
     syncError,
@@ -1096,6 +1275,9 @@ export function useKangXiStore() {
     toast,
     showToast,
     refreshSnapshot,
+    rescanLocalImport,
+    installLocalMcp,
+    switchToLocalMode,
     enterSandbox,
     connectWithCredentials,
     disconnect,

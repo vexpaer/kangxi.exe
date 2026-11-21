@@ -147,7 +147,8 @@ export function ImperialWorkbench({
             <div className="imperial-meta">
               <span
                 className={`status-dot ${
-                  store.connectionState === "online"
+                  store.connectionState === "online" ||
+                  store.connectionState === "local"
                     ? "is-online"
                     : store.connectionState === "sandbox"
                       ? "is-sandbox"
@@ -155,11 +156,13 @@ export function ImperialWorkbench({
                 }`}
               />
               <span>
-                {store.connectionState === "online"
-                  ? "中枢实时联机"
-                  : store.connectionState === "sandbox"
-                    ? "本地演示沙盒"
-                    : "重连补齐游标中"}
+                {store.connectionState === "local"
+                  ? `本机直连 · 已导入 ${store.tasks.length} 会话`
+                  : store.connectionState === "online"
+                    ? "云端实时联机"
+                    : store.connectionState === "sandbox"
+                      ? "演示沙盒"
+                      : "重连补齐游标中"}
               </span>
               <span>·</span>
               <span>候批奏折 {store.pendingCount} 件</span>
