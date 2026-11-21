@@ -50,6 +50,7 @@ export type WorkspaceMode = "local" | "remote" | "sandbox" | "unconnected";
 
 export interface UiPreferences {
   themeMode: ThemeMode;
+  modernAppearance: "light" | "dark";
   reportStyle: ReportStyle;
   soundEnabled: boolean;
   reducedMotion: boolean;
@@ -75,6 +76,7 @@ function loadPreferences(): UiPreferences {
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const fallback: UiPreferences = {
     themeMode: "imperial",
+    modernAppearance: "light",
     reportStyle: "memorial",
     soundEnabled: true,
     reducedMotion: defaultMotion,
@@ -200,7 +202,7 @@ function buildSandboxData(): {
       name: "WIN11-STUDIO",
       hostname: "DESKTOP-KANGXI",
       platform: "windows",
-      bridge_version: "0.2.0",
+      bridge_version: "0.1.1",
       status: "online",
       last_seen_at: now,
       providers: [
@@ -359,7 +361,7 @@ export function useKangXiStore() {
     is_mobile: false,
     bridge_supported: false,
     local_mode_supported: false,
-    app_version: "0.2.0",
+    app_version: "0.1.1",
   });
   const [prefs, setPrefs] = useState<UiPreferences>(loadPreferences);
   const [nav, setNav] = useState<NavSection>("inbox");
@@ -434,6 +436,7 @@ export function useKangXiStore() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = prefs.themeMode;
+    document.documentElement.dataset.appearance = prefs.modernAppearance;
     document.documentElement.dataset.motion = prefs.reducedMotion
       ? "reduced"
       : "full";

@@ -74,7 +74,7 @@ export async function getPlatformInfo(): Promise<PlatformInfo> {
       is_mobile: mobile,
       bridge_supported: false,
       local_mode_supported: false,
-      app_version: "0.2.0",
+      app_version: "0.1.1",
     };
   }
   return invoke<PlatformInfo>("get_platform_info");

@@ -41,11 +41,13 @@ Until an Authenticode certificate is configured, Windows installers are explicit
 
 ## Cutting a New Release
 
-1. Update version numbers in `package.json`, `apps/client/src-tauri/tauri.conf.json`, and `apps/client/src-tauri/Cargo.toml`.
+Releases follow the **`0.1.n` (`0.1.0`, `0.1.1`, `0.1.2`, …)** increment scheme:
+
+1. Increment `0.1.n` consistently in `package.json`, `apps/client/src-tauri/tauri.conf.json`, `apps/client/src-tauri/Cargo.toml`, and `crates/bridge/Cargo.toml`.
 2. Commit and push to `main`.
-3. Tag and push:
+3. Tag and push (e.g. `v0.1.1`):
    ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
+   git tag -a v0.1.1 -m "Release v0.1.1"
+   git push origin v0.1.1
    ```
 4. GitHub Actions automatically builds both platforms and publishes the GitHub Release with `SHA256SUMS.txt`.

@@ -1273,10 +1273,34 @@ export function SettingsPanel({ store }: { store: KangXiStore }) {
               className={store.prefs.themeMode === "modern" ? "is-active" : ""}
               onClick={() => store.updatePrefs({ themeMode: "modern" })}
             >
-              现代极简高端 (modern)
+              现代极简模式 (modern)
             </button>
           </div>
         </div>
+
+        {store.prefs.themeMode === "modern" && (
+          <div className="pref-group">
+            <span className="pref-label">极简外观（Apple 浅色 / 深色）</span>
+            <div className="seg-tabs">
+              <button
+                className={
+                  store.prefs.modernAppearance === "light" ? "is-active" : ""
+                }
+                onClick={() => store.updatePrefs({ modernAppearance: "light" })}
+              >
+                浅色通透 (Light)
+              </button>
+              <button
+                className={
+                  store.prefs.modernAppearance === "dark" ? "is-active" : ""
+                }
+                onClick={() => store.updatePrefs({ modernAppearance: "dark" })}
+              >
+                深空石墨 (Dark)
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="pref-group">
           <span className="pref-label">Agent 汇报风格（独立切换）</span>
@@ -1624,8 +1648,18 @@ export function CommandPalette({
     },
     {
       id: "theme_mod",
-      label: "切换视觉模式：现代极简高端 (Modern)",
+      label: "切换视觉模式：现代极简 Apple 风格 (Modern)",
       run: () => store.updatePrefs({ themeMode: "modern" }),
+    },
+    {
+      id: "appearance_toggle",
+      label: `切换极简外观：${store.prefs.modernAppearance === "light" ? "深空石墨 (Dark)" : "通透浅色 (Light)"}`,
+      run: () =>
+        store.updatePrefs({
+          themeMode: "modern",
+          modernAppearance:
+            store.prefs.modernAppearance === "light" ? "dark" : "light",
+        }),
     },
     {
       id: "style_mem",
