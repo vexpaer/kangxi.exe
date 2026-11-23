@@ -335,9 +335,26 @@ export type SyncEvent = z.infer<typeof SyncEventSchema>;
 
 export const BootstrapRequestSchema = z.object({
   owner_name: z.string().min(1).max(80).default("陛下"),
+  username: z.string().min(1).max(64).optional(),
+  password: z.string().min(6).max(128).optional(),
   device_label: z.string().min(1).max(80).default("Windows 御案"),
   platform: DevicePlatformSchema.default("windows"),
   bootstrap_secret: z.string().optional(),
+});
+
+export const AuthLoginRequestSchema = z.object({
+  username: z.string().min(1).max(64),
+  password: z.string().min(1).max(128),
+  device_label: z.string().min(1).max(80).default("KangXi Client"),
+  platform: DevicePlatformSchema.default("windows"),
+  fcm_token: z.string().max(512).optional(),
+});
+
+export const ChangePasswordRequestSchema = z.object({
+  current_password: z.string().max(128).optional(),
+  username: z.string().min(1).max(64).optional(),
+  new_password: z.string().min(6).max(128),
+  revoke_other_devices: z.boolean().default(false),
 });
 
 export const CreateProjectRequestSchema = z.object({

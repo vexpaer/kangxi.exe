@@ -15,10 +15,14 @@ apps/client/src-tauri/gen/android/.gradle/
 apps/client/src-tauri/gen/android/local.properties
 apps/client/src-tauri/gen/android/keystore.properties
 
-# Secrets & local env
+# Secrets & local env / runtime data
 .env
 .env.*
 !.env.example
+data/
+*.db
+*.db-wal
+*.db-shm
 *.jks
 *.keystore
 *.p12

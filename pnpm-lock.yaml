@@ -259,11 +259,27 @@ importers:
         specifier: ^3.1.1
         version: 3.2.7(@types/node@22.20.5)(supports-color@10.2.2)
 
+  packages/server-core:
+    dependencies:
+      '@kangxi/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+
   services/cloudflare:
     dependencies:
       '@kangxi/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@kangxi/server-core':
+        specifier: workspace:*
+        version: link:../../packages/server-core
       zod:
         specifier: ^3.24.2
         version: 3.25.76
@@ -286,6 +302,31 @@ importers:
       vite:
         specifier: ^7.3.1
         version: 7.3.8(@types/node@22.20.5)
+      vitest:
+        specifier: ^3.1.1
+        version: 3.2.7(@types/node@22.20.5)(supports-color@10.2.2)
+
+  services/server:
+    dependencies:
+      '@kangxi/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@kangxi/server-core':
+        specifier: workspace:*
+        version: link:../../packages/server-core
+      ws:
+        specifier: ^8.18.1
+        version: 8.21.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.0
+        version: 22.20.5
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.2
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
       vitest:
         specifier: ^3.1.1
         version: 3.2.7(@types/node@22.20.5)(supports-color@10.2.2)
@@ -1257,6 +1298,9 @@ packages:
 
   '@types/react@19.3.0':
     resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
+
+  '@types/ws@8.18.2':
+    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
 
   '@vitejs/plugin-react@4.7.0':
     resolution: {integrity: sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA==}
@@ -2566,6 +2610,10 @@ snapshots:
   '@types/react@19.3.0':
     dependencies:
       csstype: 3.2.4
+
+  '@types/ws@8.18.2':
+    dependencies:
+      '@types/node': 22.20.5
 
   '@vitejs/plugin-react@4.7.0(supports-color@10.2.2)(vite@6.4.6(@types/node@22.20.5))':
     dependencies:

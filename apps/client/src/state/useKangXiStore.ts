@@ -202,7 +202,7 @@ function buildSandboxData(): {
       name: "WIN11-STUDIO",
       hostname: "DESKTOP-KANGXI",
       platform: "windows",
-      bridge_version: "0.1.1",
+      bridge_version: "0.1.2",
       status: "online",
       last_seen_at: now,
       providers: [
@@ -361,7 +361,7 @@ export function useKangXiStore() {
     is_mobile: false,
     bridge_supported: false,
     local_mode_supported: false,
-    app_version: "0.1.1",
+    app_version: "0.1.2",
   });
   const [prefs, setPrefs] = useState<UiPreferences>(loadPreferences);
   const [nav, setNav] = useState<NavSection>("inbox");

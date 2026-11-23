@@ -1,0 +1,28 @@
+# Optional automatic HTTPS overlay using Caddy.
+# Usage (replace with your domain pointing to this server):
+#   KANGXI_DOMAIN=kangxi.example.com docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: kangxi-caddy
+    restart: unless-stopped
+    depends_on:
+      - kangxi
+    ports:
+      - "80:80"
+      - "443:443"
+    command:
+      - caddy
+      - reverse-proxy
+      - --from
+      - "${KANGXI_DOMAIN:?Set KANGXI_DOMAIN to your domain name}"
+      - --to
+      - "kangxi:8787"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

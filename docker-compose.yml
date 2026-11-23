@@ -1,0 +1,23 @@
+services:
+  kangxi:
+    build:
+      context: .
+      dockerfile: services/server/Dockerfile
+    image: kangxi-server:latest
+    container_name: kangxi-backend
+    restart: unless-stopped
+    ports:
+      - "${KANGXI_PORT:-8787}:8787"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8787"
+      KANGXI_DATA_DIR: "/data"
+      KANGXI_USERNAME: "${KANGXI_USERNAME:-admin}"
+      KANGXI_PASSWORD: "${KANGXI_PASSWORD:-}"
+      KANGXI_OWNER_NAME: "${KANGXI_OWNER_NAME:-康熙}"
+      KANGXI_RESET_PASSWORD: "${KANGXI_RESET_PASSWORD:-0}"
+    volumes:
+      - kangxi_data:/data
+
+volumes:
+  kangxi_data:

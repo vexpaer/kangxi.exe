@@ -133,13 +133,17 @@ export class KangXiApiClient {
     ok: boolean;
     service: string;
     version: string;
+    runtime?: "cloudflare" | "node";
     bootstrapped: boolean;
+    password_auth?: boolean;
   }> {
     return this.request("/health", { skipAuth: true });
   }
 
   bootstrap(input: {
-    owner_name: string;
+    owner_name?: string;
+    username?: string;
+    password?: string;
     device_label: string;
     platform: "windows" | "android" | "web" | "cli";
     bootstrap_secret?: string;
@@ -148,6 +152,36 @@ export class KangXiApiClient {
       method: "POST",
       body: JSON.stringify(input),
       skipAuth: true,
+    });
+  }
+
+  login(input: {
+    username: string;
+    password: string;
+    device_label: string;
+    platform: "windows" | "android" | "web" | "cli";
+    fcm_token?: string;
+  }): Promise<{
+    owner: { id: string; name: string; username?: string | null };
+    token: string;
+    credential: CredentialRecord;
+  }> {
+    return this.request("/api/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify(input),
+      skipAuth: true,
+    });
+  }
+
+  changePassword(input: {
+    current_password?: string;
+    username?: string;
+    new_password: string;
+    revoke_other_devices?: boolean;
+  }): Promise<{ ok: boolean; username: string; revoked_devices: number }> {
+    return this.request("/api/v1/auth/password", {
+      method: "POST",
+      body: JSON.stringify(input),
     });
   }
 

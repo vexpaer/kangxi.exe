@@ -1,4 +1,4 @@
-import type { AuthContext, Env } from "./types.ts";
+import type { AuthContext, ServerEnv } from "./types.js";
 
 export function newId(prefix: string): string {
   const bytes = new Uint8Array(10);
@@ -46,7 +46,7 @@ export function extractBearerToken(request: Request): string | null {
 
 export async function authenticateRequest(
   request: Request,
-  env: Env
+  env: ServerEnv
 ): Promise<AuthContext | null> {
   const token = extractBearerToken(request);
   if (!token) return null;
@@ -73,7 +73,6 @@ export async function authenticateRequest(
     return null;
   }
 
-  // Update last_used_at asynchronously (non-blocking)
   const now = new Date().toISOString();
   await env.DB.prepare(`UPDATE credentials SET last_used_at = ? WHERE id = ?`)
     .bind(now, row.id)

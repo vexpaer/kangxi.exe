@@ -19,9 +19,9 @@ import {
   type TaskMessage,
   type TaskStatus,
 } from "@kangxi/protocol";
-import { newId } from "./auth.ts";
-import { sendOptionalFcmWake } from "./fcm.ts";
-import type { Env } from "./types.ts";
+import { newId } from "./auth.js";
+import { sendOptionalFcmWake } from "./fcm.js";
+import type { ServerEnv as Env } from "./types.js";
 
 const MAX_LOG_MESSAGE_CHARS = 12_000;
 
@@ -302,16 +302,10 @@ export async function emitEvent(
     payload,
   };
 
-  // Fan out via Durable Object (best effort; persisted event cursor is source of truth)
+  // Fan out via RealtimeHub (Cloudflare Durable Object or Node WebSocket Hub)
   try {
-    if (env.SYNC_HUB) {
-      const id = env.SYNC_HUB.idFromName(params.owner_id);
-      const stub = env.SYNC_HUB.get(id);
-      await stub.fetch("https://sync-hub/broadcast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner_id: params.owner_id, event }),
-      });
+    if (env.REALTIME) {
+      await env.REALTIME.broadcast(params.owner_id, event);
     }
   } catch {
     // Non-fatal: clients catch up via GET /api/v1/events?after=cursor

@@ -5,10 +5,13 @@ import {
   Cloud,
   Copy,
   Download,
+  Eye,
+  EyeOff,
   FolderPlus,
   HardDrive,
   KeyRound,
   Link2,
+  Lock,
   Play,
   Plus,
   QrCode,
@@ -39,10 +42,38 @@ import {
 import type { KangXiStore } from "../state/useKangXiStore";
 
 // ---------------------------------------------------------------------------
-// 1. Optional Remote Cloudflare Connection Gate / Modal
-//    - On Android: initial screen (pairs to self-hosted backend)
-//    - On Windows Desktop: ONLY opened when user wants remote control / other PCs
+// 1. Optional Remote Backend Connection Gate / Modal
+//    - Works with ANY deployed backend (Docker / Node server OR Cloudflare)
+//    - Primary flow: Server URL + Username + Password (auto-bootstraps fresh instances)
+//    - Advanced fallback: Pairing Code / Bearer Token
 // ---------------------------------------------------------------------------
+
+function isInsecurePublicHttp(url: string): boolean {
+  try {
+    const parsed = new URL(url.trim());
+    if (parsed.protocol !== "http:") return false;
+    const h = parsed.hostname.toLowerCase();
+    if (
+      h === "localhost" ||
+      h === "127.0.0.1" ||
+      h === "::1" ||
+      h.startsWith("192.168.") ||
+      h.startsWith("10.") ||
+      h.startsWith("100.") ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
+      h.endsWith(".local") ||
+      h.endsWith(".ts.net")
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const AGENT_DEPLOY_PROMPT =
+  "请克隆 https://github.com/vexpaer/kangxi.exe 并阅读根目录 DEPLOY.md，帮我把 KangXi.exe 后端部署到这台服务器（或我的 Cloudflare 账号），用户名设为 admin，设置一个强密码并验证 /health，完成后把「服务器地址 + 用户名 + 密码」告诉我。";
 
 export function ConnectionGate({
   store,
@@ -53,63 +84,121 @@ export function ConnectionGate({
   asModal?: boolean;
   onClose?: () => void;
 }) {
-  const [tab, setTab] = useState<"bootstrap" | "token" | "pairing">(
-    store.platform.is_mobile ? "pairing" : "bootstrap"
+  const [authMode, setAuthMode] = useState<"password" | "pairing" | "token">(
+    "password"
   );
   const [serverUrl, setServerUrl] = useState(
-    store.creds?.server_url ||
-      "https://kangxi-backend.your-subdomain.workers.dev"
+    store.creds?.server_url || ""
   );
-  const [ownerName, setOwnerName] = useState("康熙");
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [deviceLabel, setDeviceLabel] = useState(
-    store.platform.is_mobile ? "Android 随身御批" : "Windows 御案"
+    store.platform.is_mobile ? "Android 随身端" : "Windows 桌面端"
   );
   const [token, setToken] = useState("");
   const [pairingCode, setPairingCode] = useState("");
-  const [bootstrapSecret, setBootstrapSecret] = useState("");
+  const [showDeployHint, setShowDeployHint] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [statusHint, setStatusHint] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const normalizeUrl = (u: string) => u.trim().replace(/\/+$/, "");
+  const normalizeUrl = (u: string) => {
+    const trimmed = u.trim().replace(/\/+$/, "");
+    if (!trimmed) return "";
+    if (!/^https?:\/\//i.test(trimmed)) {
+      return `https://${trimmed}`;
+    }
+    return trimmed;
+  };
 
-  const handleBootstrap = async () => {
+  const normalizedPreview = normalizeUrl(serverUrl);
+  const warnPlainHttp = isInsecurePublicHttp(normalizedPreview);
+
+  const handlePasswordSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const url = normalizeUrl(serverUrl);
+    if (!url) {
+      setErr("请输入后端服务器地址");
+      return;
+    }
+    if (!username.trim() || !password) {
+      setErr("请输入用户名和密码");
+      return;
+    }
+
     setBusy(true);
     setErr(null);
+    setStatusHint("正在检测后端状态...");
     try {
-      const url = normalizeUrl(serverUrl);
       const client = new KangXiApiClient({ baseUrl: url, token: "" });
-      const res = await client.bootstrap({
-        owner_name: ownerName.trim() || "陛下",
-        device_label: deviceLabel.trim() || "Windows 御案",
-        platform: store.platform.is_mobile ? "android" : "windows",
-        bootstrap_secret: bootstrapSecret.trim() || undefined,
-      });
-      await store.connectWithCredentials({
-        server_url: url,
-        token: res.token,
-        device_label: res.credential.label,
-        scope: res.credential.scope,
-      });
+      const health = await client.health();
+      const platform = store.platform.is_mobile ? "android" : "windows";
+      const label =
+        deviceLabel.trim() ||
+        (store.platform.is_mobile ? "Android 随身端" : "Windows 桌面端");
+
+      if (!health.bootstrapped) {
+        if (password.length < 6) {
+          throw new Error("首次创建管理员账号，密码长度至少需要 6 位。");
+        }
+        setStatusHint("首次连接，正在创建管理员账号...");
+        const res = await client.bootstrap({
+          username: username.trim(),
+          password,
+          owner_name: username.trim(),
+          device_label: label,
+          platform,
+        });
+        await store.connectWithCredentials({
+          server_url: url,
+          token: res.token,
+          device_label: res.credential.label,
+          scope: res.credential.scope,
+        });
+      } else {
+        setStatusHint("正在验证账号并签发本机安全凭证...");
+        const res = await client.login({
+          username: username.trim(),
+          password,
+          device_label: label,
+          platform,
+        });
+        await store.connectWithCredentials({
+          server_url: url,
+          token: res.token,
+          device_label: res.credential.label,
+          scope: res.credential.scope,
+        });
+      }
+      onClose?.();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      setStatusHint(null);
     }
   };
 
   const handleTokenLogin = async () => {
+    const url = normalizeUrl(serverUrl);
+    if (!url) {
+      setErr("请输入后端服务器地址");
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
-      const url = normalizeUrl(serverUrl);
       const client = new KangXiApiClient({ baseUrl: url, token: token.trim() });
       await client.getSnapshot();
       await store.connectWithCredentials({
         server_url: url,
         token: token.trim(),
         device_label: deviceLabel.trim() || "Connected Device",
-        scope: "device",
+        scope: "owner",
       });
+      onClose?.();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -131,10 +220,15 @@ export function ConnectionGate({
         if (parsed.server_url) url = normalizeUrl(parsed.server_url);
         if (parsed.pairing_code) code = parsed.pairing_code;
       }
+      if (!url) {
+        throw new Error("请输入后端服务器地址或粘贴完整配对 JSON");
+      }
       const client = new KangXiApiClient({ baseUrl: url, token: "" });
       const res = await client.redeemPairing({
         pairing_code: code,
-        device_label: deviceLabel.trim() || "Android 随身御批",
+        device_label:
+          deviceLabel.trim() ||
+          (store.platform.is_mobile ? "Android 随身端" : "Windows 桌面端"),
         platform: store.platform.is_mobile ? "android" : "windows",
       });
       await store.connectWithCredentials({
@@ -143,10 +237,21 @@ export function ConnectionGate({
         device_label: res.credential.label,
         scope: res.credential.scope,
       });
+      onClose?.();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const copyAgentPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(AGENT_DEPLOY_PROMPT);
+      setCopiedPrompt(true);
+      setTimeout(() => setCopiedPrompt(false), 2200);
+    } catch {
+      // ignore clipboard errors
     }
   };
 
@@ -155,11 +260,11 @@ export function ConnectionGate({
       <div className="gate-header">
         <div className="gate-seal">御批</div>
         <div>
-          <h1>{asModal ? "连接云端后端（跨设备 / 控制其他电脑）" : "KangXi.exe"}</h1>
+          <h1>{asModal ? "连接远程后端" : "KangXi.exe"}</h1>
           <p className="muted">
             {asModal
-              ? "仅在使用手机远程批阅或跨多台电脑协作时需要连接 Cloudflare 后端；单机使用可直接停留在「本机直连模式」。"
-              : "自部署 Cloudflare 后端 · 跨设备 Agent 奏折批阅与远程控制"}
+              ? "输入已部署的后端地址、用户名和密码即可联机（支持任意服务器或 Cloudflare）。单机使用可直接留在「本机直连模式」。"
+              : "输入你的后端地址、用户名与密码即可接入（支持自建服务器或 Cloudflare）"}
           </p>
         </div>
         {asModal && onClose ? (
@@ -174,151 +279,237 @@ export function ConnectionGate({
         ) : (
           <div className="gate-theme-switch">
             <button
-              className={`pill-btn ${store.prefs.themeMode === "imperial" ? "is-active" : ""}`}
-              onClick={() => store.updatePrefs({ themeMode: "imperial" })}
-            >
-              仿真皇帝
-            </button>
-            <button
               className={`pill-btn ${store.prefs.themeMode === "modern" ? "is-active" : ""}`}
               onClick={() => store.updatePrefs({ themeMode: "modern" })}
             >
               现代极简
             </button>
+            <button
+              className={`pill-btn ${store.prefs.themeMode === "imperial" ? "is-active" : ""}`}
+              onClick={() => store.updatePrefs({ themeMode: "imperial" })}
+            >
+              仿真皇帝
+            </button>
           </div>
         )}
       </div>
 
-      <div className="seg-tabs">
-        <button
-          className={tab === "bootstrap" ? "is-active" : ""}
-          onClick={() => setTab("bootstrap")}
-        >
-          初次建阁 (Bootstrap)
-        </button>
-        <button
-          className={tab === "pairing" ? "is-active" : ""}
-          onClick={() => setTab("pairing")}
-        >
-          配对码登录 (手机/新设备)
-        </button>
-        <button
-          className={tab === "token" ? "is-active" : ""}
-          onClick={() => setTab("token")}
-        >
-          已有凭证连接
-        </button>
-      </div>
+      {authMode === "password" ? (
+        <form className="form-stack" onSubmit={handlePasswordSubmit}>
+          <label className="field">
+            <span>服务器地址</span>
+            <input
+              value={serverUrl}
+              onChange={(e) => setServerUrl(e.target.value)}
+              placeholder="https://kangxi.example.com 或 https://xxx.workers.dev 或 http://192.168.1.10:8787"
+              autoFocus
+            />
+          </label>
 
-      <div className="form-stack">
-        <label className="field">
-          <span>自部署 Cloudflare Worker URL</span>
-          <input
-            value={serverUrl}
-            onChange={(e) => setServerUrl(e.target.value)}
-            placeholder="https://kangxi-backend.<subdomain>.workers.dev"
-          />
-        </label>
+          {warnPlainHttp && (
+            <div className="hint-banner" style={{ color: "var(--warning)" }}>
+              <ShieldAlert size={14} />
+              <span>
+                检测到公网明文 HTTP 地址，建议配置 HTTPS（或通过 Tailscale / Cloudflare 访问）以保护密码传输。
+              </span>
+            </div>
+          )}
 
-        {tab === "bootstrap" && (
-          <>
-            <div className="form-row">
-              <label className="field">
-                <span>主事者称谓 (Owner)</span>
+          <div className="form-row">
+            <label className="field">
+              <span>用户名</span>
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="admin"
+                autoComplete="username"
+              />
+            </label>
+            <label className="field">
+              <span>密码</span>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <input
-                  value={ownerName}
-                  onChange={(e) => setOwnerName(e.target.value)}
+                  style={{ flex: 1 }}
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="输入登录密码（新实例自动创建）"
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setShowPassword((v) => !v)}
+                  title={showPassword ? "隐藏密码" : "显示密码"}
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </label>
+          </div>
+
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={busy || !serverUrl.trim() || !username.trim() || !password}
+          >
+            <Lock size={14} />
+            {busy ? statusHint || "正在登录..." : "登录并连接"}
+          </button>
+
+          <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+            登录成功后会自动签发本设备专属安全凭证并存入系统凭证库，不在本地保存明文密码；若是刚部署的全新后端，将自动用当前账密初始化管理员。
+          </p>
+
+          {err && <div className="alert-err">{err}</div>}
+        </form>
+      ) : (
+        <div className="form-stack">
+          <div className="seg-tabs">
+            <button
+              className={authMode === "pairing" ? "is-active" : ""}
+              onClick={() => setAuthMode("pairing")}
+            >
+              配对码 / 扫码
+            </button>
+            <button
+              className={authMode === "token" ? "is-active" : ""}
+              onClick={() => setAuthMode("token")}
+            >
+              Bearer Token
+            </button>
+          </div>
+
+          <label className="field">
+            <span>服务器地址</span>
+            <input
+              value={serverUrl}
+              onChange={(e) => setServerUrl(e.target.value)}
+              placeholder="https://kangxi.example.com 或 https://xxx.workers.dev"
+            />
+          </label>
+
+          {authMode === "pairing" ? (
+            <>
+              <label className="field">
+                <span>一次性配对码或扫码 JSON</span>
+                <input
+                  value={pairingCode}
+                  onChange={(e) => setPairingCode(e.target.value)}
+                  placeholder="例如：ABCD-2345 或粘贴 QR JSON"
                 />
               </label>
               <label className="field">
-                <span>本机名称</span>
+                <span>本设备名称</span>
                 <input
                   value={deviceLabel}
                   onChange={(e) => setDeviceLabel(e.target.value)}
                 />
               </label>
-            </div>
-            <label className="field">
-              <span>Bootstrap Secret（可选）</span>
-              <input
-                type="password"
-                value={bootstrapSecret}
-                onChange={(e) => setBootstrapSecret(e.target.value)}
-                placeholder="若 Worker 未配置可留空"
-              />
-            </label>
-            <button
-              className="btn-primary"
-              disabled={busy}
-              onClick={handleBootstrap}
-            >
-              {busy ? "正在初始化实例..." : "初始化并接入远程后端"}
-            </button>
-          </>
-        )}
+              <button
+                className="btn-primary"
+                disabled={busy || !pairingCode.trim()}
+                onClick={handlePairingRedeem}
+              >
+                {busy ? "正在配对..." : "核验配对码并接入"}
+              </button>
+            </>
+          ) : (
+            <>
+              <label className="field">
+                <span>Bearer 凭证 (kx_own_... / kx_dev_...)</span>
+                <input
+                  type="password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="凭证将安全存入系统凭证库"
+                />
+              </label>
+              <label className="field">
+                <span>本设备名称</span>
+                <input
+                  value={deviceLabel}
+                  onChange={(e) => setDeviceLabel(e.target.value)}
+                />
+              </label>
+              <button
+                className="btn-primary"
+                disabled={busy || !token.trim()}
+                onClick={handleTokenLogin}
+              >
+                {busy ? "正在校验..." : "连接实例"}
+              </button>
+            </>
+          )}
 
-        {tab === "pairing" && (
-          <>
-            <label className="field">
-              <span>一次性配对码或扫码 JSON 内容</span>
-              <input
-                value={pairingCode}
-                onChange={(e) => setPairingCode(e.target.value)}
-                placeholder="例如：ABCD-2345 或粘贴 QR JSON"
-              />
-            </label>
-            <label className="field">
-              <span>本设备名称</span>
-              <input
-                value={deviceLabel}
-                onChange={(e) => setDeviceLabel(e.target.value)}
-              />
-            </label>
-            <button
-              className="btn-primary"
-              disabled={busy || !pairingCode.trim()}
-              onClick={handlePairingRedeem}
-            >
-              {busy ? "正在配对..." : "核验配对码并接入"}
-            </button>
-          </>
-        )}
+          {err && <div className="alert-err">{err}</div>}
+        </div>
+      )}
 
-        {tab === "token" && (
-          <>
-            <label className="field">
-              <span>Bearer 凭证 (kx_own_... / kx_dev_...)</span>
-              <input
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="凭证将安全存入系统凭证库，不写入明文 LocalStorage"
-              />
-            </label>
-            <label className="field">
-              <span>本设备名称</span>
-              <input
-                value={deviceLabel}
-                onChange={(e) => setDeviceLabel(e.target.value)}
-              />
-            </label>
-            <button
-              className="btn-primary"
-              disabled={busy || !token.trim()}
-              onClick={handleTokenLogin}
-            >
-              {busy ? "正在校验..." : "连接实例"}
-            </button>
-          </>
-        )}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+          marginTop: 12,
+          paddingTop: 10,
+          borderTop: "1px solid var(--border-subtle)",
+        }}
+      >
+        <button
+          type="button"
+          className="btn-ghost btn-sm"
+          onClick={() => setShowDeployHint((v) => !v)}
+        >
+          <Sparkles size={13} />
+          {showDeployHint ? "收起部署指引" : "还没后端？让 AI Agent 帮你一键部署"}
+        </button>
 
-        {err && <div className="alert-err">{err}</div>}
+        <button
+          type="button"
+          className="btn-ghost btn-sm"
+          onClick={() => {
+            setErr(null);
+            setAuthMode((m) => (m === "password" ? "pairing" : "password"));
+          }}
+        >
+          <KeyRound size={13} />
+          {authMode === "password" ? "进阶：配对码 / Token 登录" : "返回账号密码登录"}
+        </button>
       </div>
+
+      {showDeployHint && (
+        <div
+          className="surface-card"
+          style={{ marginTop: 10, padding: 14, display: "grid", gap: 8 }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 600 }}>
+            把下面这句话发给你的 Codex / Claude Code 即可自动部署：
+          </div>
+          <pre
+            className="code-block"
+            style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}
+          >
+            {AGENT_DEPLOY_PROMPT}
+          </pre>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span className="muted" style={{ fontSize: 12 }}>
+              支持 Docker、Node 24 服务器与 Cloudflare 免费版（见 <code>DEPLOY.md</code>）
+            </span>
+            <button type="button" className="btn-ghost btn-sm" onClick={copyAgentPrompt}>
+              {copiedPrompt ? <Check size={13} /> : <Copy size={13} />}
+              {copiedPrompt ? "已复制指令" : "复制给 Agent"}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="gate-footer">
         {asModal && onClose ? (
           <>
-            <span className="muted">部署指引见仓库 <code>docs/SELF_HOST.md</code>。</span>
+            <span className="muted">单机使用无需后端，所有本机 Codex/Claude 已自动汇聚。</span>
             <button className="btn-ghost" onClick={onClose}>
               暂不连接，继续使用本机模式
             </button>
@@ -326,7 +517,7 @@ export function ConnectionGate({
         ) : (
           <>
             <span className="muted">
-              尚未部署 Cloudflare Worker？可先体验双视觉与批阅交互。
+              暂未部署后端？可先进入演示沙盒体验界面。
             </span>
             <button className="btn-ghost" onClick={store.enterSandbox}>
               进入演示沙盒
@@ -1246,10 +1437,46 @@ export function McpAccessPanel({ store }: { store: KangXiStore }) {
 // ---------------------------------------------------------------------------
 
 export function SettingsPanel({ store }: { store: KangXiStore }) {
+  const [curPw, setCurPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [revokeOthers, setRevokeOthers] = useState(false);
+  const [pwBusy, setPwBusy] = useState(false);
+
   const handleToggleAutostart = async (enabled: boolean) => {
     const val = await setAutostartEnabled(enabled);
     store.setAutostartEnabledState(val);
     store.showToast(val ? "已启用开机自启动。" : "已关闭开机自启动。", "ok");
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!store.creds || newPw.length < 6) return;
+    setPwBusy(true);
+    try {
+      const client = new KangXiApiClient({
+        baseUrl: store.creds.server_url,
+        token: store.creds.token,
+      });
+      const res = await client.changePassword({
+        current_password: curPw || undefined,
+        new_password: newPw,
+        revoke_other_devices: revokeOthers,
+      });
+      setCurPw("");
+      setNewPw("");
+      setRevokeOthers(false);
+      store.showToast(
+        res.revoked_devices > 0
+          ? `密码已更新（用户名：${res.username}），已下线其他 ${res.revoked_devices} 台设备。`
+          : `密码已更新（用户名：${res.username}）。`,
+        "ok"
+      );
+      await store.refreshSnapshot();
+    } catch (err) {
+      store.showToast(err instanceof Error ? err.message : String(err), "err");
+    } finally {
+      setPwBusy(false);
+    }
   };
 
   return (
@@ -1367,7 +1594,7 @@ export function SettingsPanel({ store }: { store: KangXiStore }) {
                 ? "本机直连模式（零后端 · 自动导入）"
                 : store.sandboxMode
                   ? "本地演示沙盒"
-                  : "Cloudflare 远程联机模式"}
+                  : "远程后端联机模式（自建服务器 / Cloudflare）"}
             </strong>
           </div>
           <div>
@@ -1393,7 +1620,7 @@ export function SettingsPanel({ store }: { store: KangXiStore }) {
                 className="btn-primary"
                 onClick={() => store.setRemoteModalOpen(true)}
               >
-                <Cloud size={14} /> 连接 Cloudflare 远程后端（控制其他电脑/手机）
+                <Cloud size={14} /> 连接远程后端（任意服务器 / Cloudflare）
               </button>
               <button className="btn-ghost" onClick={store.rescanLocalImport}>
                 <RefreshCw size={14} /> 重新扫描本机环境
@@ -1410,11 +1637,62 @@ export function SettingsPanel({ store }: { store: KangXiStore }) {
                 </button>
               )}
               <button className="btn-danger" onClick={store.disconnect}>
-                断开云端连接
+                断开远程连接
               </button>
             </>
           )}
         </div>
+
+        {!store.localMode && !store.sandboxMode && store.creds && (
+          <form
+            className="form-stack"
+            onSubmit={handleChangePassword}
+            style={{
+              marginTop: 18,
+              paddingTop: 16,
+              borderTop: "1px solid var(--border-subtle)",
+            }}
+          >
+            <h4 style={{ margin: 0, fontSize: 14 }}>账号与密码安全</h4>
+            <div className="form-row">
+              <label className="field">
+                <span>当前密码（旧版首次设密可留空）</span>
+                <input
+                  type="password"
+                  value={curPw}
+                  onChange={(e) => setCurPw(e.target.value)}
+                  autoComplete="current-password"
+                />
+              </label>
+              <label className="field">
+                <span>新密码（至少 6 位）</span>
+                <input
+                  type="password"
+                  value={newPw}
+                  onChange={(e) => setNewPw(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </label>
+            </div>
+            <label className="checkbox-inline">
+              <input
+                type="checkbox"
+                checked={revokeOthers}
+                onChange={(e) => setRevokeOthers(e.target.checked)}
+              />
+              <span>修改后强制下线其他已登录的电脑与手机</span>
+            </label>
+            <div>
+              <button
+                type="submit"
+                className="btn-ghost btn-sm"
+                disabled={pwBusy || newPw.length < 6}
+              >
+                <Lock size={13} /> {pwBusy ? "正在更新..." : "更新登录密码"}
+              </button>
+            </div>
+          </form>
+        )}
       </section>
     </div>
   );

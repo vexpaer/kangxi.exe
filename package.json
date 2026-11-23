@@ -1,19 +1,21 @@
 {
   "name": "kangxi-exe",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
-  "description": "KangXi.exe — Imperial & Modern multi-device Agent workbench with MCP memorials, Windows Bridge, and Cloudflare BYO backend",
+  "description": "KangXi.exe — Imperial & Modern multi-device Agent workbench with Local-First auto-import, universal self-hosted Node/Docker + Cloudflare backend, and MCP memorials",
   "packageManager": "pnpm@12.21.0",
   "scripts": {
     "dev:client": "pnpm --filter @kangxi/client dev",
+    "dev:server": "pnpm --filter @kangxi/server dev",
+    "start:server": "pnpm --filter @kangxi/server start",
     "dev:backend": "pnpm --filter @kangxi/cloudflare dev",
-    "build": "pnpm --filter @kangxi/protocol build && pnpm --filter @kangxi/app-core build && pnpm --filter @kangxi/client build",
+    "build": "pnpm --filter @kangxi/protocol build && pnpm --filter @kangxi/app-core build && pnpm --filter @kangxi/server-core build && pnpm --filter @kangxi/server build && pnpm --filter @kangxi/client build",
     "build:backend": "pnpm --filter @kangxi/cloudflare build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm --filter @kangxi/protocol test && pnpm --filter @kangxi/app-core test && pnpm --filter @kangxi/cloudflare test",
+    "test": "pnpm --filter @kangxi/protocol test && pnpm --filter @kangxi/app-core test && pnpm --filter @kangxi/cloudflare test && pnpm --filter @kangxi/server test",
     "tauri": "pnpm --filter @kangxi/client tauri"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.5.0"
   }
 }

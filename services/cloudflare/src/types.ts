@@ -3,17 +3,10 @@ export interface Env {
   SYNC_HUB: DurableObjectNamespace;
   APP_VERSION?: string;
   BOOTSTRAP_SECRET?: string;
+  KANGXI_USERNAME?: string;
+  KANGXI_PASSWORD?: string;
+  KANGXI_OWNER_NAME?: string;
+  KANGXI_RESET_PASSWORD?: string;
   FCM_PROJECT_ID?: string;
   FCM_ACCESS_TOKEN?: string;
-}
-
-export interface AuthContext {
-  credential_id: string;
-  owner_id: string;
-  label: string;
-  scope: "owner" | "device" | "bridge" | "mcp_agent";
-  device_platform: string | null;
-  agent_id: string | null;
-  bridge_id: string | null;
-  allowed_project_ids: string[] | null;
 }

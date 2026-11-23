@@ -5,14 +5,14 @@ import {
   McpSubmitMemorialInputSchema,
   McpSubmitReportInputSchema,
 } from "@kangxi/protocol";
-import { canAccessProject } from "./auth.ts";
+import { canAccessProject } from "./auth.js";
 import {
   appendTaskMessageRecord,
   createMemorialRecord,
   emitEvent,
   getMemorialWithDecision,
-} from "./db.ts";
-import type { AuthContext, Env } from "./types.ts";
+} from "./db.js";
+import type { AuthContext, ServerEnv as Env } from "./types.js";
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -171,6 +171,17 @@ export async function handleMcpRequest(
   }
 }
 
+async function resolveMcpAgentId(env: Env, auth: AuthContext): Promise<string> {
+  if (auth.agent_id) return auth.agent_id;
+  const row = await env.DB.prepare(
+    `SELECT id FROM agents WHERE owner_id = ? ORDER BY CASE WHEN provider = 'mcp_external' THEN 0 ELSE 1 END, created_at ASC LIMIT 1`
+  )
+    .bind(auth.owner_id)
+    .first<{ id: string }>();
+  if (row?.id) return row.id;
+  return "agent_mcp_default";
+}
+
 async function executeMcpTool(
   env: Env,
   auth: AuthContext,
@@ -196,7 +207,7 @@ async function executeMcpTool(
         };
       }
 
-      const agentId = auth.agent_id ?? "agent_mcp_default";
+      const agentId = await resolveMcpAgentId(env, auth);
       const memorial = await createMemorialRecord(env, {
         owner_id: auth.owner_id,
         project_id: parsed.project_id,
@@ -347,7 +358,7 @@ async function executeMcpTool(
         };
       }
 
-      const agentId = auth.agent_id ?? "agent_mcp_default";
+      const agentId = await resolveMcpAgentId(env, auth);
       const now = new Date().toISOString();
       let messageId: string | null = null;
 

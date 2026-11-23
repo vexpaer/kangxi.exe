@@ -1,12 +1,12 @@
 import type { SyncEvent } from "@kangxi/protocol";
-import type { Env } from "./types.ts";
+import type { ServerEnv } from "./types.js";
 
 /**
  * Optional metadata-only FCM push notification for Android background wake.
- * Strictly avoids placing sensitive memorial contents into third-party push payloads (SPEC 6.3).
+ * Strictly avoids placing sensitive memorial contents into third-party push payloads.
  */
 export async function sendOptionalFcmWake(
-  env: Env,
+  env: ServerEnv,
   ownerId: string,
   event: SyncEvent
 ): Promise<void> {
